@@ -26,9 +26,10 @@ const Sparkline = ({ data, color = "#2D5A27", width = 80, height = 20 }: { data:
 };
 
 const MarketRow = ({ item }: { item: CommodityPrice }) => {
-  const last = item.trend[item.trend.length - 1];
-  const prev = item.trend[item.trend.length - 2] || last;
-  const change = ((last - prev) / prev) * 100;
+  const trend = item.trend || [];
+  const last = trend.length > 0 ? trend[trend.length - 1] : 0;
+  const prev = trend.length > 1 ? trend[trend.length - 2] : last;
+  const change = prev !== 0 ? ((last - prev) / prev) * 100 : 0;
   const isUp = last > prev;
   const isDown = last < prev;
 
@@ -72,7 +73,6 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Persistence for subscribers and email config
   const [subscribers, setSubscribers] = useState<Subscriber[]>(() => {
     const saved = localStorage.getItem('agriants_subs');
     return saved ? JSON.parse(saved) : [];
@@ -160,10 +160,7 @@ export default function App() {
     if (inputText.trim()) {
       allContent.push({ id: 'temp-last', type: 'text', text: inputText, timestamp: '' });
     }
-    if (allContent.length === 0) {
-      setError("The Curation Stack is empty. Add sources or paste text to generate.");
-      return;
-    }
+    
     setIsLoading(true);
     setError(null);
     setNewsletter(null);
@@ -182,7 +179,8 @@ export default function App() {
       setCurations([]);
       setInputText('');
     } catch (err: any) {
-      setError(`Harvesting interrupted: ${err.message || 'Unknown Error'}.`);
+      console.error("Generation failed:", err);
+      setError(`Harvesting interrupted: ${err.message || 'The model was unable to complete the draft. Please adjust your inputs and try again.'}`);
     } finally {
       setIsLoading(false);
     }
@@ -205,8 +203,14 @@ export default function App() {
               <p className="text-[10px] font-black uppercase tracking-[0.4em] text-neutral-300 mt-2">AGRIANTS Intelligence</p>
            </div>
            <div className="space-y-4">
-              <input required type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="Lead Editor Email" className="w-full bg-neutral-50 rounded-2xl p-4 text-sm font-bold border-none ring-1 ring-neutral-200 outline-none focus:ring-2 focus:ring-ag-green transition-all" />
-              <input required type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="Passkey" className="w-full bg-neutral-50 rounded-2xl p-4 text-sm font-bold border-none ring-1 ring-neutral-200 outline-none focus:ring-2 focus:ring-ag-green transition-all" />
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-300" />
+                <input required type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="Email" className="w-full bg-neutral-50 rounded-2xl p-4 pl-12 text-sm font-bold border-none ring-1 ring-neutral-200 outline-none focus:ring-2 focus:ring-ag-green transition-all" />
+              </div>
+              <div className="relative">
+                <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-300" />
+                <input required type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="Passkey" className="w-full bg-neutral-50 rounded-2xl p-4 pl-12 text-sm font-bold border-none ring-1 ring-neutral-200 outline-none focus:ring-2 focus:ring-ag-green transition-all" />
+              </div>
            </div>
            <button disabled={isLoggingIn} className="w-full bg-ag-green text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 transition-all">
              {isLoggingIn ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Key className="w-4 h-4 text-ag-gold" /> Unlock Portal</>}
@@ -292,12 +296,12 @@ export default function App() {
             <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste reports, transcripts, or notes..." className="w-full h-44 bg-neutral-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none transition-all placeholder:text-neutral-300" />
             <button onClick={() => addToStack('text')} className="w-full bg-neutral-100 text-neutral-500 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-ag-green hover:text-white transition-all disabled:opacity-30">Add Fragment to Stack</button>
             <div className="flex gap-3">
-              <div className="flex-[2] flex items-center bg-neutral-50 rounded-2xl px-5 shadow-inner ring-1 ring-neutral-100">
+              <div className="flex-[2] flex items-center bg-neutral-50 rounded-2xl px-5 shadow-inner ring-1 ring-neutral-100 focus-within:ring-ag-green transition-all">
                 <Youtube className="w-4 h-4 text-red-600 mr-3" />
                 <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="YouTube URL" className="bg-transparent border-none text-xs flex-1 font-bold py-4 focus:ring-0" />
                 <button onClick={() => ytUrl.trim() && addToStack('youtube', ytUrl.trim())} className="text-ag-green"><Plus className="w-6 h-6"/></button>
               </div>
-              <button onClick={() => fileInputRef.current?.click()} className="p-4 bg-neutral-50 rounded-2xl text-ag-green ring-1 ring-neutral-100 hover:bg-neutral-100"><Upload className="w-6 h-6"/></button>
+              <button onClick={() => fileInputRef.current?.click()} className="p-4 bg-neutral-50 rounded-2xl text-ag-green ring-1 ring-neutral-100 hover:bg-neutral-100 transition-all"><Upload className="w-6 h-6"/></button>
               <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
             </div>
           </section>
@@ -310,7 +314,7 @@ export default function App() {
               </div>
               <div className="space-y-2">
                 {curations.map(item => (
-                  <div key={item.id} className="bg-white p-4 rounded-2xl border border-neutral-100 shadow-sm flex items-center justify-between group">
+                  <div key={item.id} className="bg-white p-4 rounded-2xl border border-neutral-100 shadow-sm flex items-center justify-between group hover:border-ag-green/20 transition-all">
                     <div className="flex items-center gap-3">
                       {item.type === 'youtube' ? <Youtube className="w-4 h-4 text-red-600" /> : <FileText className="w-4 h-4 text-ag-green" />}
                       <span className="text-xs font-bold truncate max-w-[240px]">{item.url || item.text || 'Fragment'}</span>
@@ -324,7 +328,7 @@ export default function App() {
 
           <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm">
             <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-6"><Globe className="w-4 h-4 text-ag-gold" /> Market Watch</h3>
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               {marketTrends.map((m, i) => (
                 <div key={i} className="bg-neutral-50 p-4 rounded-3xl ring-1 ring-neutral-100 flex justify-between items-end">
                   <div><p className="text-[9px] font-black text-neutral-400 uppercase">{m.name}</p><p className="text-sm font-black text-ag-green">{m.price}</p></div>
@@ -332,19 +336,29 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100">
-              <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300" />
+            <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
+              <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
               <span className="text-[10px] font-black uppercase text-neutral-400 group-hover:text-ag-green">Sync Market grounding in Draft</span>
             </label>
           </section>
+
+          {error && (
+            <div className="p-5 bg-red-50 border border-red-100 text-red-600 rounded-[2rem] flex items-start gap-4 text-xs font-black animate-in slide-in-from-top-2">
+              <AlertCircle className="w-6 h-6 flex-shrink-0 mt-0.5"/>
+              <span>{error}</span>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-[3.5rem] border border-neutral-200 shadow-2xl min-h-[900px] flex flex-col overflow-hidden sticky top-28">
-           <div className="p-12 flex-1 overflow-y-auto">
+           <div className="p-12 flex-1 overflow-y-auto custom-scrollbar">
              {isLoading ? (
                <div className="h-full flex flex-col items-center justify-center space-y-8 text-center">
                  <div className="w-20 h-20 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
-                 <p className="text-[11px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield...</p>
+                 <div className="space-y-1">
+                   <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
+                   <p className="text-[10px] font-medium text-neutral-300">Grounding insights and drafting visuals...</p>
+                 </div>
                </div>
              ) : newsletter ? (
                <div className="animate-in fade-in duration-1000">
@@ -385,22 +399,44 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Supplemental Footer Sections */}
+                  {/* Grounding Sources */}
+                  {newsletter.sources && newsletter.sources.length > 0 && (
+                    <div className="mt-20 pt-10 border-t border-neutral-100 text-left">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-6 flex items-center gap-2">
+                        <Globe className="w-3 h-3" /> Grounding Sources
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {newsletter.sources.map((source, idx) => (
+                          <a 
+                            key={idx} 
+                            href={source.uri} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50 border border-neutral-100 hover:border-ag-green/30 hover:bg-white transition-all group"
+                          >
+                            <span className="text-[10px] font-bold text-neutral-600 truncate mr-4">{source.title || 'Source'}</span>
+                            <ExternalLink className="w-3 h-3 text-neutral-300 group-hover:text-ag-green transition-colors" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="mt-28 space-y-12 pt-16 border-t border-neutral-100">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                       <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4">
+                       <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all">
                           <Share2 className="w-8 h-8 text-ag-gold mx-auto" />
                           <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Referral Program</h4>
                           <p className="text-[11px] font-medium text-neutral-500">Share The Yield with a fellow farmer and unlock exclusive market deep-dives.</p>
                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Get your link</button>
                        </div>
-                       <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4">
+                       <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all">
                           <Heart className="w-8 h-8 text-red-400 mx-auto" />
                           <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Donation Station</h4>
                           <p className="text-[11px] font-medium text-neutral-500">Support the AGRIANTS Cooperative and our sustainable mission in the RSA.</p>
                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Contribute</button>
                        </div>
-                       <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4">
+                       <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all">
                           <Megaphone className="w-8 h-8 text-blue-400 mx-auto" />
                           <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Partner With Us</h4>
                           <p className="text-[11px] font-medium text-neutral-500">Looking to advertise to over 10,000 modern producers? We're open for business.</p>
