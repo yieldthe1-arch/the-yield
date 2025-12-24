@@ -1,6 +1,12 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsletterData, GroundingChunk, CommodityPrice, CurationItem } from "../types";
+
+// Ensure process is recognized by the compiler
+declare var process: {
+  env: {
+    API_KEY: string;
+  };
+};
 
 const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
@@ -22,7 +28,10 @@ export const generateNewsletter = async (
   includeMarketData: boolean,
   recognitionDay?: string
 ): Promise<NewsletterData> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API_KEY environment variable is not defined.");
+  
+  const ai = new GoogleGenAI({ apiKey });
   
   const parts: any[] = [];
   curations.forEach(item => {
@@ -48,7 +57,7 @@ export const generateNewsletter = async (
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
-    contents: [{ parts }], // Using array structure for robustness
+    contents: [{ parts }],
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
       responseMimeType: "application/json",
@@ -58,7 +67,9 @@ export const generateNewsletter = async (
         properties: {
           header: {
             type: Type.OBJECT,
-            properties: { vibeCheck: { type: Type.STRING } },
+            properties: { 
+              vibeCheck: { type: Type.STRING } 
+            },
             required: ["vibeCheck"]
           },
           sections: {
@@ -102,7 +113,10 @@ export const generateNewsletter = async (
 };
 
 export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return [];
+  
+  const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
@@ -135,12 +149,19 @@ export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
 };
 
 export const generateImage = async (prompt: string): Promise<string | undefined> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return undefined;
+  
+  const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: [{ parts: [{ text: `A clean Morning Brew style illustration for a newsletter: ${prompt}` }] }],
-      config: { imageConfig: { aspectRatio: "16:9" } }
+      config: { 
+        imageConfig: { 
+          aspectRatio: "16:9" 
+        } 
+      }
     });
     
     const parts = response.candidates?.[0]?.content?.parts;
