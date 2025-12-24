@@ -9,6 +9,35 @@ declare var process: {
 };
 
 /**
+ * Utility to wait for a specific duration.
+ */
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * A robust wrapper to handle API calls with exponential backoff.
+ * Increased initial delay to better respect Free Tier RPM (Requests Per Minute).
+ */
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 4, delay = 3000): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const errorText = JSON.stringify(err).toLowerCase();
+    const isQuotaError = errorText.includes('429') || 
+                         errorText.includes('quota') || 
+                         errorText.includes('resource_exhausted') ||
+                         err?.status === 429;
+
+    if (isQuotaError && retries > 0) {
+      console.warn(`Quota exceeded (429). Retrying in ${delay}ms... (${retries} retries left)`);
+      await sleep(delay);
+      // Increase delay for the next retry (exponential backoff)
+      return callWithRetry(fn, retries - 1, delay * 2);
+    }
+    throw err;
+  }
+}
+
+/**
  * Utility to strip markdown backticks and other common AI fluff from JSON strings.
  */
 const cleanJSON = (text: string): string => {
@@ -49,7 +78,6 @@ export const generateNewsletter = async (
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const parts: any[] = [];
   
-  // Consolidate curated pieces
   const sourceContext = curations.map(c => {
     if (c.type === 'text') return `[TEXT SNIPPET]: ${c.text}`;
     if (c.type === 'youtube') return `[VIDEO SOURCE]: ${c.url}`;
@@ -59,7 +87,6 @@ export const generateNewsletter = async (
 
   parts.push({ text: `RAW DATA TO PROCESS:\n${sourceContext || "No context provided, generate general high-value agricultural news."}` });
 
-  // Add binary data
   curations.forEach(item => {
     if (item.data && item.mimeType) {
       parts.push({
@@ -80,7 +107,7 @@ export const generateNewsletter = async (
   
   parts.push({ text: prompt });
 
-  try {
+  return callWithRetry(async () => {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: [{ parts }],
@@ -118,19 +145,9 @@ export const generateNewsletter = async (
     });
 
     const responseText = response.text;
-    if (!responseText) {
-      const finishReason = response.candidates?.[0]?.finishReason;
-      throw new Error(`Model returned empty text. Finish Reason: ${finishReason || 'Unknown'}`);
-    }
+    if (!responseText) throw new Error("Model returned empty text.");
     
-    let result;
-    try {
-      result = JSON.parse(cleanJSON(responseText));
-    } catch (parseErr) {
-      console.error("JSON Parse Error. Cleaned text:", cleanJSON(responseText));
-      throw new Error("The newsletter harvest was corrupted during drafting. Please try again.");
-    }
-
+    const result = JSON.parse(cleanJSON(responseText));
     const sources: { title: string; uri: string }[] = [];
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     
@@ -147,46 +164,46 @@ export const generateNewsletter = async (
       sources,
       generatedAt: new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
     };
-  } catch (err: any) {
-    console.error("Gemini Generation Error:", err);
-    throw err;
-  }
+  }, 4, 3000); 
 };
 
 export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], asOf: string}> => {
   if (!process.env.API_KEY) return { prices: [], asOf: 'Offline' };
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, and the latest Raw Honey prices in South Africa. Return as JSON: { prices: [{name, price, unit, category, trend: number[]}], asOf: string }. Provide at least 2 numbers in the 'trend' array for each item." }] }],
-      config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 },
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            prices: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  price: { type: Type.STRING },
-                  unit: { type: Type.STRING },
-                  category: { type: Type.STRING },
-                  trend: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+    return await callWithRetry(async () => {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, and the latest Raw Honey prices in South Africa. Return as JSON: { prices: [{name, price, unit, category, trend: number[]}], asOf: string }. Provide at least 2 numbers in the 'trend' array for each item." }] }],
+        config: {
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 0 },
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              prices: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    price: { type: Type.STRING },
+                    unit: { type: Type.STRING },
+                    category: { type: Type.STRING },
+                    trend: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+                  }
                 }
-              }
-            },
-            asOf: { type: Type.STRING }
+              },
+              asOf: { type: Type.STRING }
+            }
           }
         }
-      }
-    });
-    return JSON.parse(cleanJSON(response.text || "{}"));
+      });
+      return JSON.parse(cleanJSON(response.text || "{}"));
+    }, 3, 3000); 
   } catch (e) {
     console.warn("Market fetch failed, using fallbacks.");
     return {
@@ -207,25 +224,28 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [{ text: `${prompt}. High-resolution editorial lifestyle photography, morning light, crisp focus. No text.` }]
-      },
-      config: { 
-        imageConfig: { aspectRatio: "16:9" } 
-      }
-    });
-    
-    if (response.candidates?.[0]?.content?.parts) {
-      for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData) {
-          return `data:image/png;base64,${part.inlineData.data}`;
+    return await callWithRetry(async () => {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: `${prompt}. High-resolution editorial lifestyle photography, morning light, crisp focus. No text.` }]
+        },
+        config: { 
+          imageConfig: { aspectRatio: "16:9" } 
+        }
+      });
+      
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) {
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
         }
       }
-    }
+      return undefined;
+    }, 4, 3000); 
   } catch (e) {
-    console.error("Image generation failed:", e);
+    console.error("Image generation failed permanently after retries:", e);
   }
   return undefined;
 };
