@@ -9,25 +9,45 @@ declare var process: {
 };
 
 /**
+ * Global state to enforce a minimum gap between ANY API calls.
+ * This is crucial for Free Tier users where concurrent requests 
+ * or rapid-fire requests trigger immediate 429s.
+ */
+let lastRequestTime = 0;
+const MIN_REQUEST_GAP = 6000; // 6 seconds minimum between any two API calls.
+
+/**
  * Utility to wait for a specific duration.
  */
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * A robust wrapper to handle API calls with exponential backoff.
- * Increased initial delay to 5000ms to be extremely conservative with RPM limits.
+ * Ensures we don't hit the API too fast globally.
  */
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 5, delay = 5000): Promise<T> {
+async function throttle() {
+  const now = Date.now();
+  const timeSinceLast = now - lastRequestTime;
+  if (timeSinceLast < MIN_REQUEST_GAP) {
+    const waitTime = MIN_REQUEST_GAP - timeSinceLast;
+    await sleep(waitTime);
+  }
+  lastRequestTime = Date.now();
+}
+
+/**
+ * A robust wrapper to handle API calls with exponential backoff.
+ */
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 6, delay = 8000): Promise<T> {
+  await throttle();
   try {
     return await fn();
   } catch (err: any) {
     const errorString = JSON.stringify(err).toLowerCase();
     const errorMessage = err?.message?.toLowerCase() || "";
     
-    // Check for 429 status or common quota-related keywords in the error message
     const isQuotaError = 
       err?.status === 429 || 
-      err?.status === 403 || // Sometimes 403 is returned for daily quota limits
+      err?.status === 403 || 
       errorString.includes('429') || 
       errorString.includes('quota') || 
       errorString.includes('resource_exhausted') ||
@@ -35,19 +55,17 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 5, delay = 5000)
       errorMessage.includes('rate limit');
 
     if (isQuotaError && retries > 0) {
-      console.warn(`[Gemini API] Quota limit detected. Retrying in ${delay}ms... (${retries} attempts remaining)`);
+      console.warn(`[Gemini API] Rate limit hit. Retrying in ${delay}ms... (${retries} attempts left)`);
       await sleep(delay);
-      // Exponential backoff: increase delay for the next retry
+      // Exponential backoff
       return callWithRetry(fn, retries - 1, delay * 1.5);
     }
-    
-    // If we've run out of retries or it's a different error, throw it
     throw err;
   }
 }
 
 /**
- * Utility to strip markdown backticks and other common AI fluff from JSON strings.
+ * Utility to strip markdown backticks from JSON strings.
  */
 const cleanJSON = (text: string): string => {
   return text
@@ -59,22 +77,22 @@ const cleanJSON = (text: string): string => {
 const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
 Task: Produce "The Yield," a high-value, witty, and educational newsletter.
-Style: Morning Brew style (smart, punchy, slightly irreverent, high-energy).
+Style: Morning Brew style (smart, punchy, slightly irreverent).
 Tone: Professional but conversational. NO AI cliches (delve, tapestry, unlock, landscape).
 Rule: Include exactly one subtle agricultural pun per issue.
 Bold the most important sentence in every paragraph.
 
-Newsletter Structure:
-- [THE FIELD REPORT]: Business/Tech insights for modern farmers.
-- [SUPERFOOD SPOTLIGHT]: Surprising facts and quick hacks for niche health items.
-- [THE WALLET]: Investing education + live market data. Use a farm/crop analogy for financial terms.
-- [THE BREAKROOM]: A punchy 1-question agricultural trivia or food history nugget.
+Structure:
+- [THE FIELD REPORT]: Business/Tech insights.
+- [SUPERFOOD SPOTLIGHT]: Facts and hacks for niche health items.
+- [THE WALLET]: Investing education + live market data. Use farm analogies.
+- [THE BREAKROOM]: 1-question agricultural trivia.
 
-Image Prompt Instruction:
-Every section MUST have an 'imagePrompt'.
-- Prompt for: 'High-end editorial lifestyle photography, warm morning sun, crisp details, 8k resolution, cinematic lighting'.
-- Subject: Vivid agricultural or culinary scenes thematic to the section.
-- Restriction: 'No text, no letters, no words, no logos, no watermarks'.
+Image Prompts:
+Every section MUST have a unique 'imagePrompt'.
+- High-end editorial photography, 8k, cinematic.
+- Subject: Vivid agricultural/culinary scenes.
+- No text or words in images.
 `;
 
 export const generateNewsletter = async (
@@ -82,37 +100,30 @@ export const generateNewsletter = async (
   includeMarketData: boolean,
   themeId: string = 'standard'
 ): Promise<NewsletterData> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY not found in environment.");
+  if (!process.env.API_KEY) throw new Error("API_KEY not found.");
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const parts: any[] = [];
   
   const sourceContext = curations.map(c => {
-    if (c.type === 'text') return `[TEXT SNIPPET]: ${c.text}`;
-    if (c.type === 'youtube') return `[VIDEO SOURCE]: ${c.url}`;
-    if (c.type === 'image') return `[IMAGE ATTACHMENT ANALYZED]`;
+    if (c.type === 'text') return `[TEXT]: ${c.text}`;
+    if (c.type === 'youtube') return `[YT]: ${c.url}`;
+    if (c.type === 'image') return `[IMAGE ANALYZED]`;
     return '';
   }).filter(Boolean).join('\n\n');
 
-  parts.push({ text: `RAW DATA TO PROCESS:\n${sourceContext || "No context provided, generate general high-value agricultural news."}` });
+  parts.push({ text: `DATA:\n${sourceContext || "General agricultural news."}` });
 
   curations.forEach(item => {
     if (item.data && item.mimeType) {
-      parts.push({
-        inlineData: {
-          data: item.data,
-          mimeType: item.mimeType
-        }
-      });
+      parts.push({ inlineData: { data: item.data, mimeType: item.mimeType } });
     }
   });
 
-  const themeNote = themeId !== 'standard' ? `NOTE: This is the ${themeId.replace(/_/g, ' ')} Edition. Ensure the content reflects this theme.` : "";
-
-  const prompt = `Write today's edition of "The Yield". 
-  ${themeNote}
-  ${includeMarketData ? "IMPORTANT: Use Google Search to find today's (latest) SAFEX White Maize and Raw Honey prices in South Africa (ZAR). Return these exact figures in 'The Wallet' section." : "Use realistic South African agricultural benchmarks for White Maize and Raw Honey."}
-  OUTPUT RULES: Return ONLY a valid JSON object. Do not include markdown code blocks.`;
+  const prompt = `Generate "The Yield" Edition. 
+  ${themeId !== 'standard' ? `Theme: ${themeId}` : ""}
+  ${includeMarketData ? "Use Google Search for today's SAFEX White Maize and Raw Honey prices (ZAR) in SA." : ""}
+  Return ONLY JSON. No markdown blocks.`;
   
   parts.push({ text: prompt });
 
@@ -124,7 +135,6 @@ export const generateNewsletter = async (
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         tools: includeMarketData ? [{ googleSearch: {} }] : [],
-        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -146,25 +156,20 @@ export const generateNewsletter = async (
                 required: ["id", "title", "content", "imagePrompt"]
               },
             },
-            marketDate: { type: Type.STRING, description: "The date of the market data found." }
+            marketDate: { type: Type.STRING }
           },
           required: ["header", "sections"]
         }
       },
     });
 
-    const responseText = response.text;
-    if (!responseText) throw new Error("Model returned empty text.");
-    
-    const result = JSON.parse(cleanJSON(responseText));
+    const result = JSON.parse(cleanJSON(response.text || "{}"));
     const sources: { title: string; uri: string }[] = [];
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     
     if (Array.isArray(groundingChunks)) {
       groundingChunks.forEach((chunk: any) => {
-        if (chunk.web) {
-          sources.push({ title: chunk.web.title, uri: chunk.web.uri });
-        }
+        if (chunk.web) sources.push({ title: chunk.web.title, uri: chunk.web.uri });
       });
     }
 
@@ -173,23 +178,21 @@ export const generateNewsletter = async (
       sources,
       generatedAt: new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
     };
-  }, 5, 5000); 
+  }); 
 };
 
 export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], asOf: string}> => {
   if (!process.env.API_KEY) return { prices: [], asOf: 'Offline' };
-  
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, and the latest Raw Honey prices in South Africa. Return as JSON: { prices: [{name, price, unit, category, trend: number[]}], asOf: string }. Provide at least 2 numbers in the 'trend' array for each item." }] }],
+        contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Wheat, and Raw Honey in SA. Return JSON: { prices: [{name, price, unit, category, trend: number[]}], asOf: string }." }] }],
         config: {
           tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 0 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -212,15 +215,11 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       });
       return JSON.parse(cleanJSON(response.text || "{}"));
-    }, 3, 4000); 
+    }, 2, 6000); 
   } catch (e) {
-    console.warn("Market fetch failed, using fallbacks.");
     return {
       prices: [
-        { name: "White Maize (WMAZ)", price: "R5,380", unit: "ton", category: "Grains", trend: [5320, 5380] },
-        { name: "Yellow Maize (YMAZ)", price: "R5,150", unit: "ton", category: "Grains", trend: [5200, 5150] },
-        { name: "Wheat (WHEAT)", price: "R6,200", unit: "ton", category: "Grains", trend: [6100, 6200] },
-        { name: "Sunflower Seeds (SUNS)", price: "R9,450", unit: "ton", category: "Seeds", trend: [9500, 9450] },
+        { name: "White Maize", price: "R5,380", unit: "ton", category: "Grains", trend: [5320, 5380] },
         { name: "Raw Honey", price: "R185", unit: "kg", category: "Produce", trend: [180, 185] }
       ],
       asOf: new Date().toLocaleDateString('en-ZA')
@@ -230,31 +229,22 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
 
 export const generateImage = async (prompt: string): Promise<string | undefined> => {
   if (!process.env.API_KEY) return undefined;
-  
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `${prompt}. High-resolution editorial lifestyle photography, morning light, crisp focus. No text.` }]
+          parts: [{ text: `${prompt}. Cinematic editorial photography, morning light, crisp focus. No text.` }]
         },
-        config: { 
-          imageConfig: { aspectRatio: "16:9" } 
-        }
+        config: { imageConfig: { aspectRatio: "16:9" } }
       });
       
-      if (response.candidates?.[0]?.content?.parts) {
-        for (const part of response.candidates[0].content.parts) {
-          if (part.inlineData) {
-            return `data:image/png;base64,{part.inlineData.data}`;
-          }
-        }
-      }
-      return undefined;
-    }, 4, 5000); 
+      const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+      return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : undefined;
+    }, 3, 7000); 
   } catch (e) {
-    console.error("Image generation failed permanently after retries:", e);
+    console.error("Image generation failed permanently.");
   }
   return undefined;
 };
