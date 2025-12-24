@@ -16,6 +16,7 @@ export interface NewsletterData {
   sections: NewsletterSection[];
   sources: { title: string; uri: string }[];
   generatedAt: string;
+  marketDate?: string;
 }
 
 export interface GroundingChunk {
