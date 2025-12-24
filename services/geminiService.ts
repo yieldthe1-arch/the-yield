@@ -1,8 +1,9 @@
 
+/// <reference types="node" />
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsletterData, CommodityPrice, CurationItem } from "../types";
 
-// Ensure process.env is typed correctly for the compiler
+// Fallback declaration for process.env in browser context
 declare const process: {
   env: {
     API_KEY: string;
@@ -11,7 +12,6 @@ declare const process: {
 
 /**
  * Global state to enforce a minimum gap between API calls.
- * Increased to 3s to protect against image generation quota limits.
  */
 let lastRequestTime = 0;
 const MIN_REQUEST_GAP = 3000; 
@@ -202,7 +202,6 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   if (!process.env.API_KEY) return undefined;
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
-    // Images are strictly rate limited, we increase the gap
     await throttle(4000); 
     
     return await callWithRetry(async () => {
@@ -222,3 +221,4 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
     return undefined;
   }
 };
+
