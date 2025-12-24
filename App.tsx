@@ -224,9 +224,9 @@ export default function App() {
       setError("You have 0 subscribers to send to.");
       return;
     }
-    if (!emailConfig.apiKey || !emailConfig.serviceId) {
+    if (!emailConfig.apiKey || !emailConfig.serviceId || !emailConfig.templateId) {
       setShowSettings(true);
-      setError("Configure EmailJS first.");
+      setError("Configure EmailJS settings first.");
       return;
     }
 
@@ -234,8 +234,21 @@ export default function App() {
     setSendSuccess(false);
     
     try {
+      // Build a robust HTML string for the email
+      const htmlContent = newsletter?.sections.map(s => {
+        const imgTag = s.imageUrl ? `<img src="${s.imageUrl}" alt="${s.title}" style="width:100%; max-width:600px; border-radius:15px; margin-bottom:15px;" />` : '';
+        const bodyText = s.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>');
+        return `
+          <div style="margin-bottom:40px; font-family: sans-serif;">
+            <h2 style="color:#2D5A27; text-transform:uppercase; font-size:16px;">${s.title}</h2>
+            ${imgTag}
+            <p style="font-size:16px; line-height:1.6; color:#333;">${bodyText}</p>
+          </div>
+        `;
+      }).join('');
+
       for (const sub of subscribers) {
-        await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -247,15 +260,21 @@ export default function App() {
               to_email: sub.email,
               vibe_check: newsletter?.header.vibeCheck,
               date: newsletter?.generatedAt,
-              content: newsletter?.sections.map(s => `<h3>${s.title}</h3>${s.content}`).join('')
+              content: htmlContent
             }
           })
         });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`EmailJS Error: ${errorText}`);
+        }
       }
       setSendSuccess(true);
       setTimeout(() => setSendSuccess(false), 3000);
-    } catch (err) {
-      setError("Distribution error.");
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Distribution error. Check console.");
     } finally {
       setIsSending(false);
     }
