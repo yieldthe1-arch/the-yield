@@ -39,7 +39,9 @@ export default function App() {
   const [marketTrends, setMarketTrends] = useState<CommodityPrice[]>([]);
   const [newsletter, setNewsletter] = useState<NewsletterData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [marketError, setMarketError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [hasCustomLogo, setHasCustomLogo] = useState(false);
   
   const [emailConfig, setEmailConfig] = useState<EmailConfig>({
     senderName: 'AGRIANTS Editor',
@@ -49,6 +51,18 @@ export default function App() {
     serviceId: '',
     templateId: ''
   });
+
+  useEffect(() => {
+    const checkLogo = async () => {
+      try {
+        const response = await fetch('/logo.png', { method: 'HEAD' });
+        if (response.ok) setHasCustomLogo(true);
+      } catch (e) {
+        setHasCustomLogo(false);
+      }
+    };
+    checkLogo();
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -75,13 +89,21 @@ export default function App() {
 
   const loadMarketTrends = async () => {
     setIsFetchingMarket(true);
+    setMarketError(null);
     try { 
       const data = await fetchMarketTrends(); 
       if (data && data.length > 0) {
         setMarketTrends(data);
+      } else {
+        setMarketTrends([]);
       }
-    } catch (err) { 
-      console.error("Market fetch error:", err); 
+    } catch (err: any) { 
+      console.error("Market fetch error:", err);
+      if (err.message === "QUOTA_EXHAUSTED") {
+        setMarketError("Market search quota hit. Try again in 60s.");
+      } else {
+        setMarketError("Unable to reach SAFEX. Refresh to try again.");
+      }
     } finally { 
       setIsFetchingMarket(false); 
     }
@@ -119,7 +141,7 @@ export default function App() {
     }
 
     if (activeContent.length === 0) {
-      setError("No content found. Add items to the stack or type in the box.");
+      setError("Add some content to the stack first!");
       return;
     }
 
@@ -136,11 +158,30 @@ export default function App() {
       setNewsletter({ ...data, sections: sectionsWithImages });
     } catch (err: any) {
       console.error("Generation error:", err);
-      setError(err.message || "Failed to generate newsletter. Check your API key.");
+      if (err.message?.includes('429')) {
+        setError("Rate limit reached. Please wait a minute before generating again.");
+      } else {
+        setError(err.message || "Failed to generate. Check your network or API key.");
+      }
     } finally {
       setIsLoading(false);
     }
   };
+
+  const LogoPlaceholder = () => (
+    <div className="flex items-center gap-3">
+      {hasCustomLogo ? (
+        <img src="/logo.png" alt="AGRIANTS Logo" className="h-10 w-auto" />
+      ) : (
+        <>
+          <div className="bg-ag-green p-2 rounded-xl">
+            <Sprout className="w-6 h-6 text-ag-gold" />
+          </div>
+          <h1 className="text-xl font-black text-ag-green tracking-tighter uppercase">AGRIANTS</h1>
+        </>
+      )}
+    </div>
+  );
 
   if (!isAuthenticated) {
     return (
@@ -148,7 +189,11 @@ export default function App() {
         <div className="w-full max-w-md bg-white rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-500">
            <div className="text-center mb-10">
               <div className="p-5 rounded-3xl bg-ag-green inline-block mb-6 shadow-xl">
-                <Sprout className="w-10 h-10 text-ag-gold" />
+                {hasCustomLogo ? (
+                  <img src="/logo.png" alt="AGRIANTS Logo" className="h-12 w-auto" />
+                ) : (
+                  <Sprout className="w-10 h-10 text-ag-gold" />
+                )}
               </div>
               <h2 className="font-serif text-4xl font-black text-ag-green italic tracking-tighter mb-2">The Yield</h2>
               <p className="text-[10px] font-black uppercase text-neutral-400 tracking-[0.4em]">Editor Portal</p>
@@ -209,7 +254,7 @@ export default function App() {
               </div>
               <div className="space-y-6">
                 <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-xs text-amber-900 leading-relaxed font-medium">
-                  Configuring the distribution layer. Ensure your templates match the defined output keys.
+                  Configuring the distribution layer.
                 </div>
                 <div className="space-y-4">
                   <input type="password" value={emailConfig.apiKey} onChange={e => setEmailConfig({...emailConfig, apiKey: e.target.value})} placeholder="Service Key" className="w-full bg-neutral-50 border-neutral-100 rounded-xl p-4 text-sm font-bold shadow-inner" />
@@ -223,12 +268,7 @@ export default function App() {
       )}
 
       <header className="border-b border-neutral-100 bg-white sticky top-0 z-50 px-6 h-20 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="bg-ag-green p-2 rounded-xl">
-            <Sprout className="w-6 h-6 text-ag-gold" />
-          </div>
-          <h1 className="text-xl font-black text-ag-green tracking-tighter uppercase">AGRIANTS</h1>
-        </div>
+        <LogoPlaceholder />
         
         <div className="flex items-center gap-4">
            <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-neutral-50 rounded-full text-neutral-400 transition-all">
@@ -251,7 +291,7 @@ export default function App() {
             <textarea 
               value={inputText} 
               onChange={e => setInputText(e.target.value)} 
-              placeholder="Paste raw data, YouTube transcripts, or article links here..." 
+              placeholder="Paste raw data or links here..." 
               className="w-full h-40 bg-neutral-50 border-none rounded-2xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none" 
             />
             <div className="flex gap-3">
@@ -301,6 +341,13 @@ export default function App() {
                 <RefreshCw className={`w-4 h-4 ${isFetchingMarket ? 'animate-spin' : ''}`} />
               </button>
             </div>
+            
+            {marketError && (
+              <div className="mb-4 p-3 bg-rose-50 border border-rose-100 rounded-xl text-[10px] text-rose-600 font-bold flex items-center gap-2">
+                <AlertCircle className="w-3 h-3"/> {marketError}
+              </div>
+            )}
+
             {isFetchingMarket && marketTrends.length === 0 ? (
                <div className="py-4 text-center">
                   <Loader2 className="w-6 h-6 animate-spin mx-auto text-ag-green opacity-20 mb-2" />
@@ -322,7 +369,7 @@ export default function App() {
               </div>
             ) : (
               <div className="text-center py-6 opacity-40">
-                <p className="text-xs font-bold">No recent ticker data.</p>
+                <p className="text-xs font-bold">Refresh to load latest prices.</p>
               </div>
             )}
             <label className="mt-6 flex items-center gap-3 cursor-pointer select-none">
@@ -351,7 +398,11 @@ export default function App() {
                 <header className="text-center mb-16">
                   <div className="flex justify-center mb-8">
                     <div className="p-4 rounded-2xl bg-ag-green shadow-xl">
-                      <Sprout className="w-8 h-8 text-ag-gold" />
+                      {hasCustomLogo ? (
+                        <img src="/logo.png" alt="AGRIANTS Logo" className="h-12 w-auto" />
+                      ) : (
+                        <Sprout className="w-8 h-8 text-ag-gold" />
+                      )}
                     </div>
                   </div>
                   <h2 className="font-serif text-5xl font-black text-ag-green italic mb-4">The Yield</h2>
