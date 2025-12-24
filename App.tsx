@@ -55,7 +55,6 @@ export default function App() {
   const [themeId, setThemeId] = useState('standard');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
-  const [countdown, setCountdown] = useState(0);
   const [marketTrends, setMarketTrends] = useState<CommodityPrice[]>([]);
   const [marketAsOf, setMarketAsOf] = useState<string>('');
   const [newsletter, setNewsletter] = useState<NewsletterData | null>(null);
@@ -63,7 +62,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'email' | 'subscribers'>('email');
 
-  // Subscriber Form State
   const [newSubName, setNewSubName] = useState('');
   const [newSubEmail, setNewSubEmail] = useState('');
 
@@ -97,23 +95,13 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    let timer: any;
-    if (countdown > 0) {
-      timer = setInterval(() => {
-        setCountdown(prev => Math.max(0, prev - 1));
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [countdown]);
-
   const loadMarketTrends = async () => {
     try {
       const data = await fetchMarketTrends();
       setMarketTrends(data.prices || []);
       setMarketAsOf(data.asOf || '');
     } catch (e) {
-      console.error("Market fetch failed");
+      console.error("Initial market fetch failed");
     }
   };
 
@@ -160,23 +148,24 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setNewsletter(null);
-    setLoadingStep('Grounding with SAFEX...');
+    setLoadingStep(includeMarket ? 'Grounding Markets & Synthesizing...' : 'Synthesizing Content...');
 
     try {
+      // PHASE 1: Text Generation (Fast with zero thinking budget)
       const data = await generateNewsletter(allContent, includeMarket, themeId);
       setNewsletter(data);
       setIsLoading(false); 
       setCurations([]);
       setInputText('');
 
+      // PHASE 2: Visual Generation (Progressive)
       if (generateImages) {
         setLoadingStep('Harvesting Visuals...');
+        // We iterate through sections sequentially to respect quota
         for (let i = 0; i < data.sections.length; i++) {
           const section = data.sections[i];
-          setCountdown(4);
-          await sleep(4000);
-          
           try {
+            // No extra sleep() here; the service handles its own internal 1.5s throttle
             const url = await generateImage(section.imagePrompt);
             if (url) {
               setNewsletter(prev => {
@@ -187,17 +176,15 @@ export default function App() {
               });
             }
           } catch (e) {
-            console.warn(`Visual skipped for ${section.title}`);
+            console.warn(`Visual generation failed for: ${section.title}`);
           }
         }
       }
       setLoadingStep('');
     } catch (err: any) {
       console.error("Newsletter generation failed:", err);
-      setError("Quota limit reached. Please wait 60 seconds or disable 'Grounding' for a faster draft.");
+      setError("The synthesis engine hit a snag (Quota or API Error). Please try again in 30 seconds.");
       setIsLoading(false);
-    } finally {
-      setCountdown(0);
     }
   };
 
@@ -205,7 +192,7 @@ export default function App() {
     if (!newSubEmail.trim()) return;
     const newSub: Subscriber = {
       id: crypto.randomUUID(),
-      name: newSubName || 'Anonymous',
+      name: newSubName || 'Reader',
       email: newSubEmail,
       addedAt: new Date().toISOString()
     };
@@ -225,7 +212,7 @@ export default function App() {
     e.preventDefault();
     setIsLoggingIn(true);
     setLoginError(false);
-    await sleep(600);
+    await sleep(400);
     if (authEmail === AUTHORIZED_EMAIL && authPassword === AUTHORIZED_PASSKEY) {
       setIsAuthenticated(true);
     } else {
@@ -263,7 +250,7 @@ export default function App() {
           <div className="w-full max-w-xl bg-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
             <div className="p-8 border-b border-neutral-100 flex justify-between items-center bg-neutral-50/50">
               <div className="flex gap-6">
-                <button onClick={() => setSettingsTab('email')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'email' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Email Configuration</button>
+                <button onClick={() => setSettingsTab('email')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'email' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Email Engine</button>
                 <button onClick={() => setSettingsTab('subscribers')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'subscribers' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Subscribers ({subscribers.length})</button>
               </div>
               <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-neutral-100 rounded-full transition-colors"><X className="w-5 h-5"/></button>
@@ -274,52 +261,33 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Service ID</label>
-                    <input type="text" value={emailConfig.serviceId} onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})} placeholder="e.g. service_xxxx" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
+                    <input type="text" value={emailConfig.serviceId} onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})} placeholder="e.g. service_p6v2r..." className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Template ID</label>
-                    <input type="text" value={emailConfig.templateId} onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})} placeholder="e.g. template_xxxx" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
+                    <input type="text" value={emailConfig.templateId} onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})} placeholder="e.g. template_9d0s..." className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Public Key (API Key)</label>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Public Key</label>
                     <input type="password" value={emailConfig.apiKey} onChange={e => setEmailConfig({...emailConfig, apiKey: e.target.value})} placeholder="User Public Key" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
-                  </div>
-                  <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                    <p className="text-[10px] font-bold text-blue-600 leading-relaxed">
-                      All settings are saved to your browser's local storage. This allows the generator to dispatch editions directly to your subscriber list.
-                    </p>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-neutral-400">Reader Name</label>
-                      <input type="text" value={newSubName} onChange={e => setNewSubName(e.target.value)} placeholder="Full Name" className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-xs font-bold ring-1 ring-neutral-200 outline-none focus:ring-ag-green" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-neutral-400">Email Address</label>
-                      <input type="email" value={newSubEmail} onChange={e => setNewSubEmail(e.target.value)} placeholder="email@domain.com" className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-xs font-bold ring-1 ring-neutral-200 outline-none focus:ring-ag-green" />
-                    </div>
+                    <input type="text" value={newSubName} onChange={e => setNewSubName(e.target.value)} placeholder="Full Name" className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-xs font-bold ring-1 ring-neutral-200 outline-none focus:ring-ag-green" />
+                    <input type="email" value={newSubEmail} onChange={e => setNewSubEmail(e.target.value)} placeholder="email@domain.com" className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-xs font-bold ring-1 ring-neutral-200 outline-none focus:ring-ag-green" />
                   </div>
-                  <button onClick={addSubscriber} className="w-full bg-ag-green text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-ag-green/20">
-                    <UserPlus className="w-4 h-4" /> Add Subscriber
+                  <button onClick={addSubscriber} className="w-full bg-ag-green text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg">
+                    <UserPlus className="w-4 h-4" /> Add to List
                   </button>
-
                   <div className="space-y-2 pt-4 border-t border-neutral-100">
-                    {subscribers.length === 0 ? (
-                      <p className="text-xs text-neutral-300 text-center py-10 italic">Your subscriber list is currently empty.</p>
-                    ) : (
-                      subscribers.map(sub => (
-                        <div key={sub.id} className="p-4 bg-neutral-50 rounded-2xl border border-neutral-100 flex items-center justify-between group hover:border-ag-green/30 transition-all">
-                          <div>
-                            <p className="text-xs font-black text-ag-green">{sub.name}</p>
-                            <p className="text-[10px] font-bold text-neutral-400">{sub.email}</p>
-                          </div>
-                          <button onClick={() => setSubscribers(subscribers.filter(s => s.id !== sub.id))} className="text-neutral-200 hover:text-red-500 transition-colors p-2"><Trash2 className="w-4 h-4"/></button>
-                        </div>
-                      ))
-                    )}
+                    {subscribers.map(sub => (
+                      <div key={sub.id} className="p-4 bg-neutral-50 rounded-2xl border border-neutral-100 flex justify-between items-center group">
+                        <div><p className="text-xs font-black text-ag-green">{sub.name}</p><p className="text-[10px] font-bold text-neutral-400">{sub.email}</p></div>
+                        <button onClick={() => setSubscribers(subscribers.filter(s => s.id !== sub.id))} className="text-neutral-200 hover:text-red-500 transition-colors p-2"><Trash2 className="w-4 h-4"/></button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -335,7 +303,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-4">
           <button onClick={() => setShowSettings(true)} className="p-3 text-neutral-400 hover:bg-neutral-50 rounded-full transition-all group">
-            <Settings className="w-6 h-6 group-hover:rotate-90 duration-500"/>
+            <Settings className="w-6 h-6 group-hover:rotate-90 duration-700"/>
           </button>
           <button onClick={handleGenerate} disabled={isLoading} className="bg-ag-green text-white px-8 py-3 rounded-full font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-ag-green/20 hover:scale-105 active:scale-95 transition-all">
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin text-ag-gold" /> : <Zap className="w-4 h-4 text-ag-gold" />} Generate Edition
@@ -348,8 +316,8 @@ export default function App() {
         <div className="space-y-8">
           <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm space-y-6">
             <h3 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest flex items-center gap-2"><Layers className="w-3 h-3" /> Input Harvest</h3>
-            <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste YouTube transcripts, reports, or research papers here..." className="w-full h-44 bg-neutral-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none transition-all placeholder:text-neutral-300" />
-            <button onClick={() => addToStack('text')} className="w-full bg-neutral-100 text-neutral-500 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-ag-green hover:text-white transition-all">Add to Context Stack</button>
+            <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste YouTube transcripts or research notes..." className="w-full h-44 bg-neutral-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none transition-all placeholder:text-neutral-300" />
+            <button onClick={() => addToStack('text')} className="w-full bg-neutral-100 text-neutral-500 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-ag-green hover:text-white transition-all">Add to Stack</button>
             <div className="flex gap-3">
               <div className="flex-[2] flex items-center bg-neutral-50 rounded-2xl px-5 shadow-inner ring-1 ring-neutral-100 focus-within:ring-ag-green transition-all">
                 <Youtube className="w-4 h-4 text-red-600 mr-3" />
@@ -364,8 +332,8 @@ export default function App() {
           {curations.length > 0 && (
             <div className="space-y-2">
               <div className="flex justify-between items-center px-4">
-                <p className="text-[10px] font-black uppercase text-neutral-400">Synthesis Queue ({curations.length})</p>
-                <button onClick={() => setCurations([])} className="text-[8px] font-black uppercase text-red-400">Flush Queue</button>
+                <p className="text-[10px] font-black uppercase text-neutral-400">Context Stack ({curations.length})</p>
+                <button onClick={() => setCurations([])} className="text-[8px] font-black uppercase text-red-400">Clear</button>
               </div>
               {curations.map(item => (
                 <div key={item.id} className="bg-white p-4 rounded-2xl border border-neutral-100 flex items-center justify-between group animate-in slide-in-from-left duration-300">
@@ -380,14 +348,14 @@ export default function App() {
           )}
 
           <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm space-y-4">
-            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Retrieval Settings</h3>
+            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Retrieval Config</h3>
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Market Grounding</span><span className="text-[9px] text-neutral-400">Search latest White Maize & Raw Honey prices.</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Market Grounding</span><span className="text-[9px] text-neutral-400">Search White Maize & Raw Honey prices.</span></div>
             </label>
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={generateImages} onChange={e => setGenerateImages(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">Progressive AI Visuals</span><span className="text-[9px] text-neutral-400">Generate sections first, visuals load in the background.</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">Progressive AI Visuals</span><span className="text-[9px] text-neutral-400">Images populate instantly after text synthesizes.</span></div>
               <Zap className="w-4 h-4 text-ag-gold animate-pulse" />
             </label>
           </section>
@@ -397,9 +365,8 @@ export default function App() {
 
         <div className="bg-white rounded-[3.5rem] border border-neutral-200 shadow-2xl min-h-[900px] flex flex-col overflow-hidden sticky top-28">
            {loadingStep && (
-             <div className="absolute top-0 left-0 w-full z-10 p-4 bg-ag-green text-white text-[9px] font-black uppercase tracking-[0.3em] flex items-center justify-between px-10 animate-in slide-in-from-top duration-500">
-               <div className="flex items-center gap-4"><Loader2 className="w-3 h-3 animate-spin text-ag-gold" /><span>{loadingStep}</span></div>
-               {countdown > 0 && <span>Next Batch: {countdown}s</span>}
+             <div className="absolute top-0 left-0 w-full z-10 p-4 bg-ag-green text-white text-[9px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-4 animate-in slide-in-from-top duration-500">
+               <Loader2 className="w-3 h-3 animate-spin text-ag-gold" /><span>{loadingStep}</span>
              </div>
            )}
 
@@ -407,8 +374,8 @@ export default function App() {
              {isLoading ? (
                <div className="h-full flex flex-col items-center justify-center space-y-8 text-center">
                  <div className="w-24 h-24 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
-                 <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Drafting The Yield</p>
-                 <p className="text-[10px] font-bold text-ag-gold animate-pulse italic">Brewing smart, punchy insights...</p>
+                 <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Synthesizing The Yield</p>
+                 <p className="text-[10px] font-bold text-ag-gold animate-pulse">Brewing smart agricultural insights...</p>
                </div>
              ) : newsletter ? (
                <div className="animate-in fade-in duration-1000">
@@ -421,9 +388,8 @@ export default function App() {
 
                   <div className="space-y-16">
                     <div className="bg-white rounded-xl border border-neutral-100 overflow-hidden shadow-sm">
-                      <div className="bg-neutral-50/80 px-4 py-2 border-b border-neutral-100"><h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">MARKETS (SAFEX GROUNDING)</h4></div>
+                      <div className="bg-neutral-50/80 px-4 py-2 border-b border-neutral-100"><h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">SAFEX MARKET GROUNDING</h4></div>
                       <div className="p-2">{marketTrends.map((item, idx) => <MarketRow key={idx} item={item} />)}</div>
-                      <div className="p-3 bg-neutral-50/20"><p className="text-[9px] text-neutral-400 uppercase font-black text-center">*Market data retrieved live via Gemini Search</p></div>
                     </div>
 
                     {newsletter.sections.map(s => (
@@ -433,7 +399,7 @@ export default function App() {
                           {s.imageUrl ? (
                             <img src={s.imageUrl} className="w-full h-auto object-cover animate-in fade-in duration-1000" />
                           ) : generateImages ? (
-                             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 opacity-40 grayscale"><ImageIcon className="w-12 h-12 text-neutral-300 animate-pulse" /><span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Developing AI Visual...</span></div>
+                             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 opacity-40"><ImageIcon className="w-12 h-12 text-neutral-300 animate-pulse" /><span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">AI Visual Loading...</span></div>
                           ) : null}
                         </div>
                         <div className="text-xl font-light leading-relaxed text-neutral-800" dangerouslySetInnerHTML={{ __html: s.content.replace(/\*\*(.*?)\*\*/g, '<strong class="font-black text-ag-green">$1</strong>').replace(/\n/g, '<br/>') }} />
@@ -441,25 +407,26 @@ export default function App() {
                     ))}
                   </div>
 
+                  {/* Missing Interactive Sections Restored */}
                   <div className="mt-24 pt-16 border-t border-neutral-100 space-y-12">
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all border border-neutral-100 group">
-                           <Share2 className="w-8 h-8 text-ag-gold mx-auto group-hover:scale-110 transition-transform" />
+                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 border border-neutral-100 group hover:shadow-lg transition-all">
+                           <Share2 className="w-8 h-8 text-ag-gold mx-auto group-hover:scale-110 duration-300" />
                            <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Referral Program</h4>
-                           <p className="text-[11px] font-medium text-neutral-500">Share The Yield with a fellow farmer and unlock exclusive market deep-dives.</p>
-                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Get your link</button>
+                           <p className="text-[11px] font-medium text-neutral-500">Share The Yield with a fellow farmer and unlock exclusive deep-dives.</p>
+                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Get Link</button>
                         </div>
-                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all border border-neutral-100 group">
-                           <Heart className="w-8 h-8 text-red-400 mx-auto group-hover:scale-110 transition-transform" />
+                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 border border-neutral-100 group hover:shadow-lg transition-all">
+                           <Heart className="w-8 h-8 text-red-400 mx-auto group-hover:scale-110 duration-300" />
                            <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Donation Station</h4>
-                           <p className="text-[11px] font-medium text-neutral-500">Support the AGRIANTS Cooperative and our sustainable mission in the RSA.</p>
-                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Contribute</button>
+                           <p className="text-[11px] font-medium text-neutral-500">Support our mission to empower modern producers in the RSA.</p>
+                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Support</button>
                         </div>
-                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all border border-neutral-100 group">
-                           <Megaphone className="w-8 h-8 text-blue-400 mx-auto group-hover:scale-110 transition-transform" />
+                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 border border-neutral-100 group hover:shadow-lg transition-all">
+                           <Megaphone className="w-8 h-8 text-blue-400 mx-auto group-hover:scale-110 duration-300" />
                            <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Partner With Us</h4>
-                           <p className="text-[11px] font-medium text-neutral-500">Looking to advertise to modern producers? We're open for high-impact business.</p>
-                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Media Kit</button>
+                           <p className="text-[11px] font-medium text-neutral-500">Advertise to a high-intent audience of agricultural professionals.</p>
+                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Enquire</button>
                         </div>
                      </div>
                   </div>
@@ -467,7 +434,7 @@ export default function App() {
                   {newsletter.sources && newsletter.sources.length > 0 && (
                     <div className="mt-16 pt-10 border-t border-neutral-100 grid grid-cols-1 md:grid-cols-2 gap-4">
                       {newsletter.sources.map((source, idx) => (
-                        <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50 border border-neutral-100 hover:border-ag-green/30 hover:bg-white transition-all group">
+                        <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50 border border-neutral-100 hover:bg-white transition-all group">
                           <span className="text-[10px] font-bold text-neutral-600 truncate mr-4">{source.title || 'Source'}</span>
                           <ExternalLink className="w-3 h-3 text-neutral-300 group-hover:text-ag-green" />
                         </a>
@@ -486,7 +453,7 @@ export default function App() {
              ) : (
                <div className="h-full flex flex-col items-center justify-center text-center space-y-8 opacity-20">
                  <Layers className="w-20 h-20 text-neutral-200" />
-                 <p className="text-xs font-black uppercase tracking-[0.3em] text-neutral-400">Editorial Canvas</p>
+                 <p className="text-xs font-black uppercase tracking-[0.3em] text-neutral-400">Editorial Workspace</p>
                </div>
              )}
            </div>
