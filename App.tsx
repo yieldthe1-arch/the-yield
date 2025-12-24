@@ -4,7 +4,7 @@ import {
   Sprout, Copy, TrendingUp, Loader2, AlertCircle, Plus, Trash2, RefreshCw,
   FileText, Youtube, Zap, X, Settings, LogOut, Printer, Layers, Send, CheckCircle2,
   Mail, Globe, Calendar, Image as ImageIcon, Music, Film, Upload, Clock, Download,
-  Key, ExternalLink, Heart, Share2, Megaphone, ArrowUp, ArrowDown, Minus, ZapOff
+  Key, ExternalLink, Heart, Share2, Megaphone, ArrowUp, ArrowDown, Minus, ZapOff, UserPlus
 } from 'lucide-react';
 import { generateNewsletter, fetchMarketTrends, generateImage } from './services/geminiService';
 import { NewsletterData, CurationItem, CommodityPrice, EmailConfig, Subscriber, UN_DAYS, NewsletterSection } from './types';
@@ -63,12 +63,17 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'email' | 'subscribers'>('email');
 
+  // Subscriber Form State
+  const [newSubName, setNewSubName] = useState('');
+  const [newSubEmail, setNewSubEmail] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [subscribers, setSubscribers] = useState<Subscriber[]>(() => {
     const saved = localStorage.getItem('agriants_subs');
     return saved ? JSON.parse(saved) : [];
   });
+  
   const [emailConfig, setEmailConfig] = useState<EmailConfig>(() => {
     const saved = localStorage.getItem('agriants_email_cfg');
     return saved ? JSON.parse(saved) : {
@@ -158,21 +163,18 @@ export default function App() {
     setLoadingStep('Grounding with SAFEX...');
 
     try {
-      // PHASE 1: Generate Text
       const data = await generateNewsletter(allContent, includeMarket, themeId);
-      
       setNewsletter(data);
       setIsLoading(false); 
       setCurations([]);
       setInputText('');
 
-      // PHASE 2: Background Images
       if (generateImages) {
-        setLoadingStep('Harvesting Background Visuals...');
+        setLoadingStep('Harvesting Visuals...');
         for (let i = 0; i < data.sections.length; i++) {
           const section = data.sections[i];
-          setCountdown(5);
-          await new Promise(r => setTimeout(r, 5000));
+          setCountdown(4);
+          await sleep(4000);
           
           try {
             const url = await generateImage(section.imagePrompt);
@@ -197,6 +199,19 @@ export default function App() {
     } finally {
       setCountdown(0);
     }
+  };
+
+  const addSubscriber = () => {
+    if (!newSubEmail.trim()) return;
+    const newSub: Subscriber = {
+      id: crypto.randomUUID(),
+      name: newSubName || 'Anonymous',
+      email: newSubEmail,
+      addedAt: new Date().toISOString()
+    };
+    setSubscribers([...subscribers, newSub]);
+    setNewSubName('');
+    setNewSubEmail('');
   };
 
   const handleCopy = () => {
@@ -244,26 +259,68 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#fafafa] text-neutral-900 pb-20">
       {showSettings && (
-        <div className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm flex justify-center items-center p-6">
-          <div className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
-            <div className="p-8 border-b border-neutral-100 flex justify-between items-center">
-              <div className="flex gap-4">
-                <button onClick={() => setSettingsTab('email')} className={`text-xs font-black uppercase tracking-widest pb-1 ${settingsTab === 'email' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Email Config</button>
-                <button onClick={() => setSettingsTab('subscribers')} className={`text-xs font-black uppercase tracking-widest pb-1 ${settingsTab === 'subscribers' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Subscribers ({subscribers.length})</button>
+        <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex justify-center items-center p-6">
+          <div className="w-full max-w-xl bg-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+            <div className="p-8 border-b border-neutral-100 flex justify-between items-center bg-neutral-50/50">
+              <div className="flex gap-6">
+                <button onClick={() => setSettingsTab('email')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'email' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Email Configuration</button>
+                <button onClick={() => setSettingsTab('subscribers')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'subscribers' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Subscribers ({subscribers.length})</button>
               </div>
-              <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-neutral-100 rounded-full"><X className="w-5 h-5"/></button>
+              <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-neutral-100 rounded-full transition-colors"><X className="w-5 h-5"/></button>
             </div>
-            <div className="p-8 flex-1 overflow-y-auto max-h-[60vh]">
+
+            <div className="p-8 flex-1 overflow-y-auto max-h-[70vh]">
               {settingsTab === 'email' ? (
-                <div className="space-y-4 text-xs font-bold text-neutral-400">Settings are persisted to local storage. Update EmailJS keys here.</div>
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Service ID</label>
+                    <input type="text" value={emailConfig.serviceId} onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})} placeholder="e.g. service_xxxx" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Template ID</label>
+                    <input type="text" value={emailConfig.templateId} onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})} placeholder="e.g. template_xxxx" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Public Key (API Key)</label>
+                    <input type="password" value={emailConfig.apiKey} onChange={e => setEmailConfig({...emailConfig, apiKey: e.target.value})} placeholder="User Public Key" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
+                  </div>
+                  <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                    <p className="text-[10px] font-bold text-blue-600 leading-relaxed">
+                      All settings are saved to your browser's local storage. This allows the generator to dispatch editions directly to your subscriber list.
+                    </p>
+                  </div>
+                </div>
               ) : (
-                <div className="space-y-4">
-                  {subscribers.length === 0 ? <p className="text-xs text-neutral-300 text-center py-10 italic">No subscribers yet.</p> : subscribers.map(sub => (
-                    <div key={sub.id} className="p-4 bg-neutral-50 rounded-xl flex justify-between items-center">
-                      <div><p className="text-xs font-black text-ag-green">{sub.name}</p><p className="text-[10px] text-neutral-400">{sub.email}</p></div>
-                      <button onClick={() => setSubscribers(subscribers.filter(s => s.id !== sub.id))} className="text-red-400"><Trash2 className="w-4 h-4"/></button>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-neutral-400">Reader Name</label>
+                      <input type="text" value={newSubName} onChange={e => setNewSubName(e.target.value)} placeholder="Full Name" className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-xs font-bold ring-1 ring-neutral-200 outline-none focus:ring-ag-green" />
                     </div>
-                  ))}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-neutral-400">Email Address</label>
+                      <input type="email" value={newSubEmail} onChange={e => setNewSubEmail(e.target.value)} placeholder="email@domain.com" className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-xs font-bold ring-1 ring-neutral-200 outline-none focus:ring-ag-green" />
+                    </div>
+                  </div>
+                  <button onClick={addSubscriber} className="w-full bg-ag-green text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-ag-green/20">
+                    <UserPlus className="w-4 h-4" /> Add Subscriber
+                  </button>
+
+                  <div className="space-y-2 pt-4 border-t border-neutral-100">
+                    {subscribers.length === 0 ? (
+                      <p className="text-xs text-neutral-300 text-center py-10 italic">Your subscriber list is currently empty.</p>
+                    ) : (
+                      subscribers.map(sub => (
+                        <div key={sub.id} className="p-4 bg-neutral-50 rounded-2xl border border-neutral-100 flex items-center justify-between group hover:border-ag-green/30 transition-all">
+                          <div>
+                            <p className="text-xs font-black text-ag-green">{sub.name}</p>
+                            <p className="text-[10px] font-bold text-neutral-400">{sub.email}</p>
+                          </div>
+                          <button onClick={() => setSubscribers(subscribers.filter(s => s.id !== sub.id))} className="text-neutral-200 hover:text-red-500 transition-colors p-2"><Trash2 className="w-4 h-4"/></button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -277,9 +334,11 @@ export default function App() {
           <div><h1 className="text-xl font-black text-ag-green tracking-tighter uppercase leading-none">AGRIANTS</h1><p className="text-[8px] font-black uppercase tracking-[0.3em] text-neutral-400">The Yield Portal</p></div>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={() => setShowSettings(true)} className="p-2 text-neutral-400 hover:bg-neutral-50 rounded-full"><Settings className="w-6 h-6"/></button>
-          <button onClick={handleGenerate} disabled={isLoading} className="bg-ag-green text-white px-8 py-3 rounded-full font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg hover:scale-105 transition-all">
-            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 text-ag-gold" />} Generate Edition
+          <button onClick={() => setShowSettings(true)} className="p-3 text-neutral-400 hover:bg-neutral-50 rounded-full transition-all group">
+            <Settings className="w-6 h-6 group-hover:rotate-90 duration-500"/>
+          </button>
+          <button onClick={handleGenerate} disabled={isLoading} className="bg-ag-green text-white px-8 py-3 rounded-full font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-ag-green/20 hover:scale-105 active:scale-95 transition-all">
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin text-ag-gold" /> : <Zap className="w-4 h-4 text-ag-gold" />} Generate Edition
           </button>
           <button onClick={() => setIsAuthenticated(false)} className="p-2 text-neutral-300 hover:text-red-500 transition-colors"><LogOut className="w-6 h-6"/></button>
         </div>
@@ -288,28 +347,31 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-8 py-10 grid grid-cols-1 lg:grid-cols-2 gap-12">
         <div className="space-y-8">
           <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm space-y-6">
-            <h3 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest flex items-center gap-2"><Layers className="w-3 h-3" /> Input Stack</h3>
-            <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste reports, transcripts, or notes..." className="w-full h-44 bg-neutral-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none" />
-            <button onClick={() => addToStack('text')} className="w-full bg-neutral-100 text-neutral-500 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-ag-green hover:text-white transition-all">Add to Stack</button>
+            <h3 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest flex items-center gap-2"><Layers className="w-3 h-3" /> Input Harvest</h3>
+            <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste YouTube transcripts, reports, or research papers here..." className="w-full h-44 bg-neutral-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none transition-all placeholder:text-neutral-300" />
+            <button onClick={() => addToStack('text')} className="w-full bg-neutral-100 text-neutral-500 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-ag-green hover:text-white transition-all">Add to Context Stack</button>
             <div className="flex gap-3">
-              <div className="flex-[2] flex items-center bg-neutral-50 rounded-2xl px-5 shadow-inner ring-1 ring-neutral-100">
+              <div className="flex-[2] flex items-center bg-neutral-50 rounded-2xl px-5 shadow-inner ring-1 ring-neutral-100 focus-within:ring-ag-green transition-all">
                 <Youtube className="w-4 h-4 text-red-600 mr-3" />
-                <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="YouTube URL" className="bg-transparent border-none text-xs flex-1 font-bold py-4 focus:ring-0" />
-                <button onClick={() => ytUrl.trim() && addToStack('youtube', ytUrl.trim())} className="text-ag-green"><Plus className="w-6 h-6"/></button>
+                <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="YouTube Link" className="bg-transparent border-none text-xs flex-1 font-bold py-4 focus:ring-0" />
+                <button onClick={() => ytUrl.trim() && addToStack('youtube', ytUrl.trim())} className="text-ag-green hover:scale-110 transition-transform"><Plus className="w-6 h-6"/></button>
               </div>
-              <button onClick={() => fileInputRef.current?.click()} className="p-4 bg-neutral-50 rounded-2xl text-ag-green ring-1 ring-neutral-100 hover:bg-neutral-100"><Upload className="w-6 h-6"/></button>
+              <button onClick={() => fileInputRef.current?.click()} className="p-4 bg-neutral-50 rounded-2xl text-ag-green ring-1 ring-neutral-100 hover:bg-neutral-100 transition-all"><Upload className="w-6 h-6"/></button>
               <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
             </div>
           </section>
 
           {curations.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[10px] font-black uppercase text-neutral-400 px-4">Ready for Synthesis ({curations.length})</p>
+              <div className="flex justify-between items-center px-4">
+                <p className="text-[10px] font-black uppercase text-neutral-400">Synthesis Queue ({curations.length})</p>
+                <button onClick={() => setCurations([])} className="text-[8px] font-black uppercase text-red-400">Flush Queue</button>
+              </div>
               {curations.map(item => (
-                <div key={item.id} className="bg-white p-4 rounded-2xl border border-neutral-100 flex items-center justify-between group">
+                <div key={item.id} className="bg-white p-4 rounded-2xl border border-neutral-100 flex items-center justify-between group animate-in slide-in-from-left duration-300">
                   <div className="flex items-center gap-3">
                     {item.type === 'youtube' ? <Youtube className="w-4 h-4 text-red-600" /> : <FileText className="w-4 h-4 text-ag-green" />}
-                    <span className="text-xs font-bold truncate max-w-[200px]">{item.url || item.text || 'Text Fragment'}</span>
+                    <span className="text-xs font-bold truncate max-w-[200px]">{item.url || item.text || 'Fragment'}</span>
                   </div>
                   <button onClick={() => setCurations(curations.filter(c => c.id !== item.id))} className="text-neutral-200 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4"/></button>
                 </div>
@@ -318,14 +380,14 @@ export default function App() {
           )}
 
           <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm space-y-4">
-            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Grounding Mode</h3>
-            <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100">
+            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Retrieval Settings</h3>
+            <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Market Grounding</span><span className="text-[9px] text-neutral-400">Search latest grain & honey prices (Adds ~10s).</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Market Grounding</span><span className="text-[9px] text-neutral-400">Search latest White Maize & Raw Honey prices.</span></div>
             </label>
-            <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100">
+            <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={generateImages} onChange={e => setGenerateImages(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">Progressive Visuals</span><span className="text-[9px] text-neutral-400">Images load in the background as you read.</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">Progressive AI Visuals</span><span className="text-[9px] text-neutral-400">Generate sections first, visuals load in the background.</span></div>
               <Zap className="w-4 h-4 text-ag-gold animate-pulse" />
             </label>
           </section>
@@ -335,20 +397,21 @@ export default function App() {
 
         <div className="bg-white rounded-[3.5rem] border border-neutral-200 shadow-2xl min-h-[900px] flex flex-col overflow-hidden sticky top-28">
            {loadingStep && (
-             <div className="absolute top-0 left-0 w-full z-10 p-4 bg-ag-green text-white text-[9px] font-black uppercase tracking-[0.3em] flex items-center justify-between px-10">
+             <div className="absolute top-0 left-0 w-full z-10 p-4 bg-ag-green text-white text-[9px] font-black uppercase tracking-[0.3em] flex items-center justify-between px-10 animate-in slide-in-from-top duration-500">
                <div className="flex items-center gap-4"><Loader2 className="w-3 h-3 animate-spin text-ag-gold" /><span>{loadingStep}</span></div>
-               {countdown > 0 && <span>Next Burst: {countdown}s</span>}
+               {countdown > 0 && <span>Next Batch: {countdown}s</span>}
              </div>
            )}
 
            <div className="p-12 flex-1 overflow-y-auto custom-scrollbar">
              {isLoading ? (
-               <div className="h-full flex flex-col items-center justify-center space-y-8 text-center opacity-50">
+               <div className="h-full flex flex-col items-center justify-center space-y-8 text-center">
                  <div className="w-24 h-24 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
-                 <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
+                 <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Drafting The Yield</p>
+                 <p className="text-[10px] font-bold text-ag-gold animate-pulse italic">Brewing smart, punchy insights...</p>
                </div>
              ) : newsletter ? (
-               <div className="animate-in fade-in duration-700">
+               <div className="animate-in fade-in duration-1000">
                   <header className="text-center mb-16">
                     <div className="p-6 rounded-[2rem] bg-ag-green inline-block mb-10 shadow-xl"><Sprout className="w-10 h-10 text-ag-gold" /></div>
                     <h2 className="font-serif text-6xl font-black text-ag-green italic mb-3 tracking-tighter">The Yield</h2>
@@ -358,8 +421,9 @@ export default function App() {
 
                   <div className="space-y-16">
                     <div className="bg-white rounded-xl border border-neutral-100 overflow-hidden shadow-sm">
-                      <div className="bg-neutral-50/80 px-4 py-2 border-b border-neutral-100"><h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">MARKETS</h4></div>
+                      <div className="bg-neutral-50/80 px-4 py-2 border-b border-neutral-100"><h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">MARKETS (SAFEX GROUNDING)</h4></div>
                       <div className="p-2">{marketTrends.map((item, idx) => <MarketRow key={idx} item={item} />)}</div>
+                      <div className="p-3 bg-neutral-50/20"><p className="text-[9px] text-neutral-400 uppercase font-black text-center">*Market data retrieved live via Gemini Search</p></div>
                     </div>
 
                     {newsletter.sections.map(s => (
@@ -369,7 +433,7 @@ export default function App() {
                           {s.imageUrl ? (
                             <img src={s.imageUrl} className="w-full h-auto object-cover animate-in fade-in duration-1000" />
                           ) : generateImages ? (
-                             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 opacity-40 grayscale"><ImageIcon className="w-12 h-12 text-neutral-300 animate-pulse" /><span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Visual Burst...</span></div>
+                             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 opacity-40 grayscale"><ImageIcon className="w-12 h-12 text-neutral-300 animate-pulse" /><span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Developing AI Visual...</span></div>
                           ) : null}
                         </div>
                         <div className="text-xl font-light leading-relaxed text-neutral-800" dangerouslySetInnerHTML={{ __html: s.content.replace(/\*\*(.*?)\*\*/g, '<strong class="font-black text-ag-green">$1</strong>').replace(/\n/g, '<br/>') }} />
@@ -377,18 +441,41 @@ export default function App() {
                     ))}
                   </div>
 
+                  <div className="mt-24 pt-16 border-t border-neutral-100 space-y-12">
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all border border-neutral-100 group">
+                           <Share2 className="w-8 h-8 text-ag-gold mx-auto group-hover:scale-110 transition-transform" />
+                           <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Referral Program</h4>
+                           <p className="text-[11px] font-medium text-neutral-500">Share The Yield with a fellow farmer and unlock exclusive market deep-dives.</p>
+                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Get your link</button>
+                        </div>
+                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all border border-neutral-100 group">
+                           <Heart className="w-8 h-8 text-red-400 mx-auto group-hover:scale-110 transition-transform" />
+                           <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Donation Station</h4>
+                           <p className="text-[11px] font-medium text-neutral-500">Support the AGRIANTS Cooperative and our sustainable mission in the RSA.</p>
+                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Contribute</button>
+                        </div>
+                        <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 hover:shadow-lg transition-all border border-neutral-100 group">
+                           <Megaphone className="w-8 h-8 text-blue-400 mx-auto group-hover:scale-110 transition-transform" />
+                           <h4 className="text-[10px] font-black uppercase tracking-widest text-ag-green">Partner With Us</h4>
+                           <p className="text-[11px] font-medium text-neutral-500">Looking to advertise to modern producers? We're open for high-impact business.</p>
+                           <button className="text-[9px] font-black uppercase text-ag-green border-b border-ag-green pb-1">Media Kit</button>
+                        </div>
+                     </div>
+                  </div>
+
                   {newsletter.sources && newsletter.sources.length > 0 && (
-                    <div className="mt-20 pt-10 border-t border-neutral-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="mt-16 pt-10 border-t border-neutral-100 grid grid-cols-1 md:grid-cols-2 gap-4">
                       {newsletter.sources.map((source, idx) => (
                         <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50 border border-neutral-100 hover:border-ag-green/30 hover:bg-white transition-all group">
-                          <span className="text-[10px] font-bold text-neutral-600 truncate mr-4">{source.title}</span>
+                          <span className="text-[10px] font-bold text-neutral-600 truncate mr-4">{source.title || 'Source'}</span>
                           <ExternalLink className="w-3 h-3 text-neutral-300 group-hover:text-ag-green" />
                         </a>
                       ))}
                     </div>
                   )}
 
-                  <div className="mt-24 py-10 border-t border-neutral-50 text-center space-y-6 pb-20 no-print">
+                  <div className="mt-20 py-12 border-t border-neutral-50 text-center space-y-8 pb-20 no-print">
                     <p className="text-sm font-bold text-ag-green italic">Visit the AGRIANTS shop for artisanal honey & energy balls.</p>
                     <div className="flex justify-center gap-4">
                       <button onClick={handleCopy} className="px-10 py-5 rounded-[2rem] bg-ag-green text-white text-[11px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:scale-105 transition-all"><Copy className="w-4 h-4 text-ag-gold" /> Copy Content</button>
