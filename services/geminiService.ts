@@ -11,17 +11,24 @@ declare var process: {
 const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
 Task: Produce "The Yield," a smart, punchy newsletter.
-Style: Morning Brew style. Smart, slightly irreverent, high-value.
-Tone: Professional but conversational. Avoid GPT-isms.
+Style: Morning Brew style (smart, witty, educational, slightly irreverent).
+Tone: Professional but conversational. Avoid "GPT-isms" like "delve" or "tapestry."
 Rule: Include exactly one subtle agricultural pun per issue.
-Imagery: Every section must include a high-quality 'imagePrompt'. These prompts should be extremely detailed, describing cinematic lighting, professional agricultural photography style, 8k resolution, and specific South African agricultural contexts.
 Bold the most important sentence in every paragraph.
 
 Newsletter Structure:
 - [THE FIELD REPORT]: Business insights for farmers.
 - [SUPERFOOD SPOTLIGHT]: Facts and recipes for niche health items.
-- [THE WALLET]: Investing education + live market data. Use a farm analogy for finance.
-- [THE BREAKROOM]: 1-question agricultural trivia.
+- [THE WALLET]: Investing education + live market data found via search. Use a farm analogy for finance.
+- [THE BREAKROOM]: A 1-question agricultural or food history trivia.
+
+Imagery Instruction:
+Every section MUST include a highly specific 'imagePrompt'.
+- Prompt for cinematic, editorial photography.
+- Specify lighting (e.g., 'golden hour', 'soft studio lighting').
+- Mention the subject clearly (e.g., 'A macro shot of organic South African Raw Honey being drizzled').
+- Explicitly state 'Avoid any text, words, or letters in the image.'
+- Style: 'Clean, professional editorial photography, high resolution, photorealistic.'
 `;
 
 export const generateNewsletter = async (
@@ -52,11 +59,11 @@ export const generateNewsletter = async (
     }
   });
 
-  const themeContext = themeId !== 'standard' ? `Special Edition Context: This edition honors ${themeId.replace(/_/g, ' ')}. Please integrate historical facts and the spirit of this UN International Day into the narratives.` : "";
+  const themeContext = themeId !== 'standard' ? `Special Edition Context: This edition honors ${themeId.replace(/_/g, ' ')}. Please integrate the spirit of this event into the narratives.` : "";
 
   const prompt = `Write today's edition of "The Yield". 
   ${themeContext}
-  ${includeMarketData ? "Search Google for today's (latest reported) South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Ensure the 'The Wallet' section includes these exact live figures as reported today. Mention the date these prices were recorded." : "Use estimated benchmarks for grains (Maize, Wheat, Soya) and fibers (Cotton) based on recent trends."}`;
+  ${includeMarketData ? "Search Google for today's (latest reported) South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Ensure the 'The Wallet' section includes these exact figures and the DATE they were recorded." : "Use estimated benchmarks for South African grains."}`;
   
   parts.push({ text: prompt });
 
@@ -89,7 +96,7 @@ export const generateNewsletter = async (
                 required: ["id", "title", "content", "imagePrompt"]
               }
             },
-            marketDate: { type: Type.STRING, description: "The date the reported market prices were recorded." }
+            marketDate: { type: Type.STRING, description: "The date the reported market prices were recorded (e.g., 'March 10, 2025')." }
           },
           required: ["header", "sections"]
         }
@@ -137,7 +144,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search Google: CURRENT latest SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton) as of today. Also latest SA Raw Honey prices. Return as JSON object with 'prices' (array) and 'asOf' (string date)." }] }],
+      contents: [{ parts: [{ text: "Search Google: CURRENT latest SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton) as of today. Also latest South African Raw Honey prices. Return as JSON with 'prices' (array) and 'asOf' (date string)." }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
@@ -181,7 +188,6 @@ const getFallbackMarketData = (): CommodityPrice[] => [
   { name: "Wheat", price: "R6,890", unit: "per ton", category: "Grains", trend: [6700, 6800, 6890] },
   { name: "Soya Beans", price: "R9,200", unit: "per ton", category: "Grains", trend: [8900, 9100, 9200] },
   { name: "Sunflower", price: "R8,400", unit: "per ton", category: "Oilseeds", trend: [8200, 8300, 8400] },
-  { name: "Cotton Lint", price: "R42.50", unit: "per lb", category: "Fibers", trend: [41, 42, 42.5] },
   { name: "Raw Honey", price: "R185", unit: "per kg", category: "Produce", trend: [175, 185] }
 ];
 
@@ -191,11 +197,11 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   
   const ai = new GoogleGenAI({ apiKey });
   try {
-    // Switching to Gemini 2.5 Flash Image for free tier compatibility
+    // gemini-2.5-flash-image is part of the "free tier" (nano banana) models
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
-        parts: [{ text: `Professional editorial agricultural photography for a high-end newsletter. Cinematic lighting, photorealistic, sharp focus. Scene: ${prompt}` }]
+        parts: [{ text: `${prompt}. Clean editorial photography style. High detail. photorealistic. NO TEXT IN IMAGE.` }]
       },
       config: { 
         imageConfig: { 
@@ -208,6 +214,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
     if (candidates && candidates.length > 0) {
       const parts = candidates[0].content?.parts;
       if (parts) {
+        // Iterate through parts to find the image part as per guidelines
         for (const part of parts) {
           if (part.inlineData) {
             return `data:image/png;base64,${part.inlineData.data}`;
