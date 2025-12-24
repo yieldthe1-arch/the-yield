@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Sprout, Copy, TrendingUp, Loader2,
   AlertCircle, Plus, Trash2, RefreshCw,
-  FileText, Youtube, Zap, X, Settings, LogOut, Printer, Layers
+  FileText, Youtube, Zap, X, Settings, LogOut, Printer, Layers, Send, CheckCircle2
 } from 'lucide-react';
 import { generateNewsletter, fetchMarketTrends, generateImage } from './services/geminiService';
 import { NewsletterData, CurationItem, CommodityPrice, EmailConfig } from './types';
@@ -35,6 +35,8 @@ export default function App() {
   const [curations, setCurations] = useState<CurationItem[]>([]);
   const [includeMarket, setIncludeMarket] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
   const [isFetchingMarket, setIsFetchingMarket] = useState(false);
   const [marketTrends, setMarketTrends] = useState<CommodityPrice[]>([]);
   const [newsletter, setNewsletter] = useState<NewsletterData | null>(null);
@@ -43,14 +45,21 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [hasCustomLogo, setHasCustomLogo] = useState(false);
   
-  const [emailConfig, setEmailConfig] = useState<EmailConfig>({
-    senderName: 'AGRIANTS Editor',
-    senderEmail: AUTHORIZED_EMAIL,
-    provider: 'emailjs',
-    apiKey: '',
-    serviceId: '',
-    templateId: ''
+  const [emailConfig, setEmailConfig] = useState<EmailConfig>(() => {
+    const saved = localStorage.getItem('agriants_email_config');
+    return saved ? JSON.parse(saved) : {
+      senderName: 'AGRIANTS Editor',
+      senderEmail: AUTHORIZED_EMAIL,
+      provider: 'emailjs',
+      apiKey: '',
+      serviceId: '',
+      templateId: ''
+    };
   });
+
+  useEffect(() => {
+    localStorage.setItem('agriants_email_config', JSON.stringify(emailConfig));
+  }, [emailConfig]);
 
   useEffect(() => {
     const checkLogo = async () => {
@@ -74,8 +83,7 @@ export default function App() {
     e.preventDefault();
     setLoginError(false);
     setIsLoggingIn(true);
-    
-    await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, 600));
 
     if (authEmail.toLowerCase().trim() === AUTHORIZED_EMAIL && authPassword === AUTHORIZED_PASSKEY) {
       setIsAuthenticated(true);
@@ -92,18 +100,9 @@ export default function App() {
     setMarketError(null);
     try { 
       const data = await fetchMarketTrends(); 
-      if (data && data.length > 0) {
-        setMarketTrends(data);
-      } else {
-        setMarketTrends([]);
-      }
+      setMarketTrends(data);
     } catch (err: any) { 
-      console.error("Market fetch error:", err);
-      if (err.message === "QUOTA_EXHAUSTED") {
-        setMarketError("Market search quota hit. Try again in 60s.");
-      } else {
-        setMarketError("Unable to reach SAFEX. Refresh to try again.");
-      }
+      setMarketError("Using benchmarks (Quota limit).");
     } finally { 
       setIsFetchingMarket(false); 
     }
@@ -141,7 +140,7 @@ export default function App() {
     }
 
     if (activeContent.length === 0) {
-      setError("Add some content to the stack first!");
+      setError("Add content to the stack first!");
       return;
     }
 
@@ -158,13 +157,58 @@ export default function App() {
       setNewsletter({ ...data, sections: sectionsWithImages });
     } catch (err: any) {
       console.error("Generation error:", err);
-      if (err.message?.includes('429')) {
-        setError("Rate limit reached. Please wait a minute before generating again.");
-      } else {
-        setError(err.message || "Failed to generate. Check your network or API key.");
+      setError("Generation failed. Trying fallback...");
+      // Re-run without search automatically
+      try {
+        const data = await generateNewsletter(activeContent, false);
+        setNewsletter(data);
+        setError(null);
+      } catch (e2) {
+        setError("Critical error during generation. Please refresh.");
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSendNewsletter = async () => {
+    if (!newsletter || !emailConfig.apiKey || !emailConfig.serviceId || !emailConfig.templateId) {
+      setShowSettings(true);
+      setError("Please configure your EmailJS settings first.");
+      return;
+    }
+
+    setIsSending(true);
+    setSendSuccess(false);
+    
+    // Simulate/Trigger EmailJS call (This would use the EmailJS SDK in a real environment)
+    // We are using a standard fetch to the EmailJS API for maximum reliability here
+    try {
+      const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: emailConfig.serviceId,
+          template_id: emailConfig.templateId,
+          user_id: emailConfig.apiKey,
+          template_params: {
+            vibe_check: newsletter.header.vibeCheck,
+            date: newsletter.generatedAt,
+            content: newsletter.sections.map(s => `<h3>${s.title}</h3><p>${s.content}</p>`).join('')
+          }
+        })
+      });
+
+      if (response.ok) {
+        setSendSuccess(true);
+        setTimeout(() => setSendSuccess(false), 3000);
+      } else {
+        throw new Error("EmailJS rejected the request. Check your IDs.");
+      }
+    } catch (err) {
+      setError("Distribution failed. Check settings.");
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -173,12 +217,12 @@ export default function App() {
       {hasCustomLogo ? (
         <img src="/logo.png" alt="AGRIANTS Logo" className="h-10 w-auto" />
       ) : (
-        <>
+        <div className="flex items-center gap-3">
           <div className="bg-ag-green p-2 rounded-xl">
             <Sprout className="w-6 h-6 text-ag-gold" />
           </div>
           <h1 className="text-xl font-black text-ag-green tracking-tighter uppercase">AGRIANTS</h1>
-        </>
+        </div>
       )}
     </div>
   );
@@ -239,29 +283,41 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#fcfcfc] text-neutral-900 font-sans selection:bg-green-100">
+    <div className="min-h-screen bg-[#fcfcfc] text-neutral-900 font-sans">
       
       {showSettings && (
         <div className="fixed inset-0 z-[100] bg-ag-green/20 backdrop-blur-sm flex justify-end">
            <div className="w-full max-w-lg bg-white shadow-2xl p-10 flex flex-col animate-in slide-in-from-right duration-500">
               <div className="flex justify-between items-center mb-10">
-                <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3">
-                  <Settings className="w-6 h-6 text-ag-green" /> Settings
-                </h3>
-                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-neutral-50 rounded-full transition-all">
+                <div className="space-y-1">
+                   <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3">
+                     <Settings className="w-6 h-6 text-ag-green" /> Delivery Config
+                   </h3>
+                   <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Connect your EmailJS Account</p>
+                </div>
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-neutral-50 rounded-full">
                   <X className="w-6 h-6"/>
                 </button>
               </div>
               <div className="space-y-6">
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-xs text-amber-900 leading-relaxed font-medium">
-                  Configuring the distribution layer.
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-[11px] text-amber-900 leading-relaxed font-bold">
+                  These settings allow you to send the generated draft directly to your subscribers via EmailJS. Visit <a href="https://www.emailjs.com" target="_blank" className="underline">emailjs.com</a> to get these IDs.
                 </div>
                 <div className="space-y-4">
-                  <input type="password" value={emailConfig.apiKey} onChange={e => setEmailConfig({...emailConfig, apiKey: e.target.value})} placeholder="Service Key" className="w-full bg-neutral-50 border-neutral-100 rounded-xl p-4 text-sm font-bold shadow-inner" />
-                  <input placeholder="Service ID" value={emailConfig.serviceId} onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})} className="w-full bg-neutral-50 border-neutral-100 rounded-xl p-4 text-sm font-bold shadow-inner" />
-                  <input placeholder="Template ID" value={emailConfig.templateId} onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})} className="w-full bg-neutral-50 border-neutral-100 rounded-xl p-4 text-sm font-bold shadow-inner" />
+                  <div>
+                    <label className="text-[9px] font-black uppercase text-neutral-400 ml-1">EmailJS Public Key</label>
+                    <input type="password" value={emailConfig.apiKey} onChange={e => setEmailConfig({...emailConfig, apiKey: e.target.value})} placeholder="Public Key" className="w-full bg-neutral-50 border-neutral-100 rounded-xl p-4 text-sm font-bold shadow-inner" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black uppercase text-neutral-400 ml-1">Service ID</label>
+                    <input placeholder="service_xxxxxx" value={emailConfig.serviceId} onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})} className="w-full bg-neutral-50 border-neutral-100 rounded-xl p-4 text-sm font-bold shadow-inner" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black uppercase text-neutral-400 ml-1">Template ID</label>
+                    <input placeholder="template_xxxxxx" value={emailConfig.templateId} onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})} className="w-full bg-neutral-50 border-neutral-100 rounded-xl p-4 text-sm font-bold shadow-inner" />
+                  </div>
                 </div>
-                <button onClick={() => setShowSettings(false)} className="w-full bg-ag-green text-white py-4 rounded-xl font-black uppercase text-xs tracking-widest mt-4">Save Configuration</button>
+                <button onClick={() => setShowSettings(false)} className="w-full bg-ag-green text-white py-4 rounded-xl font-black uppercase text-xs tracking-widest mt-4 hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-ag-green/20">Save Configuration</button>
               </div>
            </div>
         </div>
@@ -269,9 +325,8 @@ export default function App() {
 
       <header className="border-b border-neutral-100 bg-white sticky top-0 z-50 px-6 h-20 flex items-center justify-between">
         <LogoPlaceholder />
-        
         <div className="flex items-center gap-4">
-           <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-neutral-50 rounded-full text-neutral-400 transition-all">
+           <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-neutral-50 rounded-full text-neutral-400 transition-colors">
              <Settings className="w-5 h-5"/>
            </button>
            <button onClick={handleGenerate} disabled={isLoading} className="bg-ag-green text-white px-6 py-2.5 rounded-full font-black text-sm hover:opacity-90 disabled:opacity-50 flex items-center gap-2 shadow-lg active:scale-95 transition-all">
@@ -306,7 +361,7 @@ export default function App() {
                   placeholder="Paste YouTube Link" 
                   className="bg-transparent border-none text-xs flex-1 focus:ring-0 font-bold py-2" 
                 />
-                <button onClick={() => ytUrl.trim() && handleAddCuration('youtube', ytUrl.trim())} className="text-ag-green hover:scale-110 transition-transform">
+                <button onClick={() => ytUrl.trim() && handleAddCuration('youtube', ytUrl.trim())} className="text-ag-green hover:scale-110">
                   <Plus className="w-5 h-5"/>
                 </button>
               </div>
@@ -314,21 +369,19 @@ export default function App() {
           </div>
 
           {curations.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-2">
               <h4 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest px-2">Curation Stack</h4>
-              <div className="space-y-2">
-                {curations.map(c => (
-                  <div key={c.id} className="bg-white border border-neutral-100 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-in slide-in-from-left duration-300">
-                    <div className="flex items-center gap-3">
-                      {c.type === 'text' ? <FileText className="w-4 h-4 text-ag-green"/> : <Youtube className="w-4 h-4 text-red-600" />}
-                      <p className="text-xs font-bold truncate max-w-[200px]">{c.text || c.url}</p>
-                    </div>
-                    <button onClick={() => handleRemoveCuration(c.id)} className="text-neutral-300 hover:text-rose-500">
-                      <Trash2 className="w-4 h-4"/>
-                    </button>
+              {curations.map(c => (
+                <div key={c.id} className="bg-white border border-neutral-100 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-in slide-in-from-left">
+                  <div className="flex items-center gap-3">
+                    {c.type === 'text' ? <FileText className="w-4 h-4 text-ag-green"/> : <Youtube className="w-4 h-4 text-red-600" />}
+                    <p className="text-xs font-bold truncate max-w-[200px]">{c.text || c.url}</p>
                   </div>
-                ))}
-              </div>
+                  <button onClick={() => handleRemoveCuration(c.id)} className="text-neutral-300 hover:text-rose-500">
+                    <Trash2 className="w-4 h-4"/>
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -343,7 +396,7 @@ export default function App() {
             </div>
             
             {marketError && (
-              <div className="mb-4 p-3 bg-rose-50 border border-rose-100 rounded-xl text-[10px] text-rose-600 font-bold flex items-center gap-2">
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-xl text-[10px] text-amber-700 font-bold flex items-center gap-2">
                 <AlertCircle className="w-3 h-3"/> {marketError}
               </div>
             )}
@@ -351,27 +404,21 @@ export default function App() {
             {isFetchingMarket && marketTrends.length === 0 ? (
                <div className="py-4 text-center">
                   <Loader2 className="w-6 h-6 animate-spin mx-auto text-ag-green opacity-20 mb-2" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Pinging SAFEX...</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Searching Benchmarks...</p>
                </div>
             ) : marketTrends.length > 0 ? (
               <div className="grid grid-cols-2 gap-4">
                 {marketTrends.map((item, i) => (
-                  <div key={i} className="bg-neutral-50 p-5 rounded-2xl border border-neutral-100 flex flex-col justify-between">
-                    <div>
-                      <p className="text-[9px] font-black text-ag-green/40 uppercase tracking-widest">{item.name}</p>
-                      <p className="text-base font-black text-ag-green mt-1">{item.price} <span className="text-[10px] opacity-60 font-normal">{item.unit}</span></p>
-                    </div>
+                  <div key={i} className="bg-neutral-50 p-5 rounded-2xl border border-neutral-100">
+                    <p className="text-[9px] font-black text-ag-green/40 uppercase tracking-widest">{item.name}</p>
+                    <p className="text-base font-black text-ag-green mt-1">{item.price} <span className="text-[10px] opacity-60 font-normal">{item.unit}</span></p>
                     <div className="mt-4">
                       <Sparkline data={item.trend} width={120} height={20} />
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className="text-center py-6 opacity-40">
-                <p className="text-xs font-bold">Refresh to load latest prices.</p>
-              </div>
-            )}
+            ) : null}
             <label className="mt-6 flex items-center gap-3 cursor-pointer select-none">
                <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg border-neutral-200 text-ag-green focus:ring-ag-green" />
                <span className="text-xs font-bold text-neutral-600">Sync Market Data with Newsletter</span>
@@ -387,7 +434,7 @@ export default function App() {
         </div>
 
         <div className="bg-white rounded-[3rem] border border-neutral-200 shadow-xl overflow-hidden min-h-[800px] flex flex-col">
-          <div className="p-10 flex-1 overflow-y-auto custom-scrollbar bg-white">
+          <div className="p-10 flex-1 overflow-y-auto bg-white">
             {isLoading ? (
               <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
                 <div className="w-16 h-16 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
@@ -398,27 +445,19 @@ export default function App() {
                 <header className="text-center mb-16">
                   <div className="flex justify-center mb-8">
                     <div className="p-4 rounded-2xl bg-ag-green shadow-xl">
-                      {hasCustomLogo ? (
-                        <img src="/logo.png" alt="AGRIANTS Logo" className="h-12 w-auto" />
-                      ) : (
-                        <Sprout className="w-8 h-8 text-ag-gold" />
-                      )}
+                      {hasCustomLogo ? <img src="/logo.png" alt="Logo" className="h-12 w-auto" /> : <Sprout className="w-8 h-8 text-ag-gold" />}
                     </div>
                   </div>
                   <h2 className="font-serif text-5xl font-black text-ag-green italic mb-4">The Yield</h2>
                   <p className="text-[10px] font-black uppercase tracking-[0.5em] text-neutral-300 mb-8">{newsletter.generatedAt}</p>
-                  <p className="text-xl font-light italic text-neutral-500 leading-relaxed max-w-sm mx-auto">
-                    "{newsletter.header.vibeCheck}"
-                  </p>
+                  <p className="text-xl font-light italic text-neutral-500 leading-relaxed max-w-sm mx-auto">"{newsletter.header.vibeCheck}"</p>
                 </header>
 
                 <div className="space-y-20">
                   {newsletter.sections.map(section => (
                     <div key={section.id} className="space-y-6">
-                      <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-ag-green bg-green-50 px-6 py-2 rounded-full inline-block border border-green-100">
-                        {section.title}
-                      </h3>
-                      {section.imageUrl && <img src={section.imageUrl} alt="" className="w-full h-64 object-cover rounded-3xl shadow-md border border-neutral-100" />}
+                      <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-ag-green bg-green-50 px-6 py-2 rounded-full inline-block border border-green-100">{section.title}</h3>
+                      {section.imageUrl && <img src={section.imageUrl} alt="" className="w-full h-64 object-cover rounded-3xl shadow-md" />}
                       <div 
                         className="text-lg font-light leading-relaxed text-neutral-800"
                         dangerouslySetInnerHTML={{ __html: section.content.replace(/\*\*(.*?)\*\*/g, '<strong class="font-black text-ag-green">$1</strong>').replace(/\n/g, '<br/>') }}
@@ -427,15 +466,19 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="mt-20 pt-10 border-t border-neutral-100 flex justify-center gap-4 no-print">
-                   <button onClick={() => window.print()} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-neutral-50 text-neutral-600 text-xs font-black hover:bg-neutral-100 transition-all">
-                      <Printer className="w-4 h-4"/> Save to PDF
+                <div className="mt-20 pt-10 border-t border-neutral-100 flex flex-wrap justify-center gap-4 no-print pb-10">
+                   <button onClick={handleSendNewsletter} disabled={isSending} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-ag-green text-white text-xs font-black hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-50">
+                      {isSending ? <Loader2 className="w-4 h-4 animate-spin"/> : sendSuccess ? <CheckCircle2 className="w-4 h-4 text-ag-gold"/> : <Send className="w-4 h-4"/>} 
+                      {sendSuccess ? "Sent Successfully" : "Send to Subscribers"}
+                   </button>
+                   <button onClick={() => window.print()} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-neutral-50 text-neutral-600 text-xs font-black hover:bg-neutral-100 active:scale-95 transition-all">
+                      <Printer className="w-4 h-4"/> Save as PDF
                    </button>
                    <button onClick={() => {
                      const text = newsletter.sections.map(s => `${s.title}\n\n${s.content}`).join('\n\n');
                      navigator.clipboard.writeText(text);
-                   }} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-neutral-50 text-neutral-600 text-xs font-black hover:bg-neutral-100 transition-all">
-                      <Copy className="w-4 h-4"/> Copy Content
+                   }} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-neutral-50 text-neutral-600 text-xs font-black hover:bg-neutral-100 active:scale-95 transition-all">
+                      <Copy className="w-4 h-4"/> Copy Text
                    </button>
                 </div>
               </div>
