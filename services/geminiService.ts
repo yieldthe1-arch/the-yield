@@ -15,24 +15,33 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * A robust wrapper to handle API calls with exponential backoff.
- * Increased initial delay to better respect Free Tier RPM (Requests Per Minute).
+ * Increased initial delay to 5000ms to be extremely conservative with RPM limits.
  */
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 4, delay = 3000): Promise<T> {
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 5, delay = 5000): Promise<T> {
   try {
     return await fn();
   } catch (err: any) {
-    const errorText = JSON.stringify(err).toLowerCase();
-    const isQuotaError = errorText.includes('429') || 
-                         errorText.includes('quota') || 
-                         errorText.includes('resource_exhausted') ||
-                         err?.status === 429;
+    const errorString = JSON.stringify(err).toLowerCase();
+    const errorMessage = err?.message?.toLowerCase() || "";
+    
+    // Check for 429 status or common quota-related keywords in the error message
+    const isQuotaError = 
+      err?.status === 429 || 
+      err?.status === 403 || // Sometimes 403 is returned for daily quota limits
+      errorString.includes('429') || 
+      errorString.includes('quota') || 
+      errorString.includes('resource_exhausted') ||
+      errorMessage.includes('quota') ||
+      errorMessage.includes('rate limit');
 
     if (isQuotaError && retries > 0) {
-      console.warn(`Quota exceeded (429). Retrying in ${delay}ms... (${retries} retries left)`);
+      console.warn(`[Gemini API] Quota limit detected. Retrying in ${delay}ms... (${retries} attempts remaining)`);
       await sleep(delay);
-      // Increase delay for the next retry (exponential backoff)
-      return callWithRetry(fn, retries - 1, delay * 2);
+      // Exponential backoff: increase delay for the next retry
+      return callWithRetry(fn, retries - 1, delay * 1.5);
     }
+    
+    // If we've run out of retries or it's a different error, throw it
     throw err;
   }
 }
@@ -164,7 +173,7 @@ export const generateNewsletter = async (
       sources,
       generatedAt: new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
     };
-  }, 4, 3000); 
+  }, 5, 5000); 
 };
 
 export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], asOf: string}> => {
@@ -203,7 +212,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       });
       return JSON.parse(cleanJSON(response.text || "{}"));
-    }, 3, 3000); 
+    }, 3, 4000); 
   } catch (e) {
     console.warn("Market fetch failed, using fallbacks.");
     return {
@@ -238,12 +247,12 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       if (response.candidates?.[0]?.content?.parts) {
         for (const part of response.candidates[0].content.parts) {
           if (part.inlineData) {
-            return `data:image/png;base64,${part.inlineData.data}`;
+            return `data:image/png;base64,{part.inlineData.data}`;
           }
         }
       }
       return undefined;
-    }, 4, 3000); 
+    }, 4, 5000); 
   } catch (e) {
     console.error("Image generation failed permanently after retries:", e);
   }
