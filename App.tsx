@@ -207,7 +207,6 @@ export default function App() {
 
     try {
       const data = await generateNewsletter(activeContent, includeMarket, themeId);
-      // Sequentially generate images for each section to ensure accuracy
       const sectionsWithImages = await Promise.all(data.sections.map(async (s) => {
         const url = await generateImage(s.imagePrompt);
         return { ...s, imageUrl: url };
@@ -215,7 +214,7 @@ export default function App() {
       setNewsletter({ ...data, sections: sectionsWithImages });
     } catch (err: any) {
       console.error(err);
-      setError("Generation failed. Please check your API key.");
+      setError("Generation failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -238,11 +237,11 @@ export default function App() {
     
     try {
       const htmlSections = newsletter.sections.map(s => {
-        const imgTag = s.imageUrl ? `<div style="text-align:center; margin: 30px 0;"><img src="${s.imageUrl}" alt="${s.title}" style="width:100%; max-width:540px; border-radius:20px; display:block; margin: 0 auto; border: 1px solid #f1f5f9;" /></div>` : '';
+        const imgTag = s.imageUrl ? `<div style="text-align:center; margin: 30px 0;"><img src="${s.imageUrl}" alt="${s.title}" style="width:100%; max-width:540px; border-radius:24px; display:block; margin: 0 auto; border: 1px solid #f1f5f9;" /></div>` : '';
         const bodyText = s.content.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#2D5A27; font-weight: 800;">$1</strong>').replace(/\n/g, '<br/>');
         return `
           <div style="margin-bottom:60px; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
-            <div style="text-align:center; margin-bottom: 20px;">
+            <div style="text-align:center; margin-bottom: 25px;">
               <span style="background-color: #f0fdf4; color: #2D5A27; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 3px; padding: 6px 16px; border-radius: 50px; border: 1.5px solid #dcfce7; display: inline-block;">${s.title}</span>
             </div>
             ${imgTag}
@@ -251,10 +250,9 @@ export default function App() {
         `;
       }).join('');
 
-      // The Yield Branded Table Wrapper (For center-aligned narrow layout in emails)
       const masterEmailHtml = `
-        <div style="background-color: #f8fafc; padding: 60px 0; font-family: 'Inter', system-ui, sans-serif;">
-          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 40px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+        <div style="background-color: #f1f5f9; padding: 60px 0; font-family: 'Inter', system-ui, sans-serif;">
+          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 40px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
             <tr>
               <td style="padding: 60px 40px 30px 40px; text-align: center;">
                 <div style="background-color: #2D5A27; width: 64px; height: 64px; margin: 0 auto; border-radius: 20px; line-height: 64px; text-align: center;">
@@ -262,7 +260,7 @@ export default function App() {
                 </div>
                 <h1 style="font-family: 'Georgia', serif; font-style: italic; font-weight: 900; font-size: 48px; color: #2D5A27; margin: 24px 0 8px 0; letter-spacing: -1.5px;">The Yield</h1>
                 <p style="text-transform: uppercase; letter-spacing: 6px; font-size: 10px; font-weight: 800; color: #94a3b8; margin: 0 0 40px 0;">${newsletter.generatedAt}</p>
-                <p style="font-style: italic; color: #64748b; font-size: 20px; line-height: 1.6; max-width: 440px; margin: 0 auto; font-family: 'Georgia', serif;">"${newsletter.header.vibeCheck}"</p>
+                <p style="font-style: italic; color: #64748b; font-size: 19px; line-height: 1.6; max-width: 440px; margin: 0 auto; font-family: 'Georgia', serif;">"${newsletter.header.vibeCheck}"</p>
                 <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 45px 0;" />
               </td>
             </tr>
@@ -274,9 +272,9 @@ export default function App() {
             <tr>
               <td style="padding: 50px 40px; background-color: #f8fafc; text-align: center; border-top: 1px solid #f1f5f9;">
                 <p style="font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 4px; color: #cbd5e1; margin-bottom: 12px;">AGRIANTS PRIMARY AGRICULTURAL COOPERATIVE</p>
-                <p style="font-size: 13px; font-weight: 600; color: #64748b; margin: 0;">Business insights for the modern field.</p>
+                <p style="font-size: 13px; font-weight: 600; color: #64748b; margin: 0;">Business insights for the modern producer.</p>
                 <div style="margin-top: 25px; font-size: 11px; color: #94a3b8;">
-                   Visit the <a href="https://agriants.co.za" style="color: #2D5A27; text-decoration: underline; font-weight: 800;">AGRIANTS Official Shop</a>.
+                   Visit the <a href="https://agriants.co.za" style="color: #2D5A27; text-decoration: underline; font-weight: 800;">AGRIANTS Shop</a> for artisanal honey.
                 </div>
               </td>
             </tr>
@@ -299,7 +297,7 @@ export default function App() {
               to_name: sub.name,
               to_email: sub.email,
               date: newsletter.generatedAt,
-              content: masterEmailHtml // Injecting full themed HTML
+              content: masterEmailHtml
             }
           })
         });
