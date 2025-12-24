@@ -95,7 +95,12 @@ export default function App() {
   }, [subscribers, emailConfig]);
 
   useEffect(() => {
-    if (isAuthenticated && marketTrends.length === 0) loadMarketTrends();
+    // Only load market trends if authenticated and not already loaded.
+    // Also add a small delay to avoid clashing with other auth-triggered logic.
+    if (isAuthenticated && marketTrends.length === 0) {
+      const timer = setTimeout(() => loadMarketTrends(), 1500);
+      return () => clearTimeout(timer);
+    }
   }, [isAuthenticated]);
 
   const loadMarketTrends = async () => {
@@ -151,17 +156,17 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setNewsletter(null);
+
     try {
+      // Step 1: Generate text (grounding included here)
       const data = await generateNewsletter(allContent, includeMarket, themeId);
       const sectionsWithImages = [];
       
-      // Process images sequentially with a delay to avoid RPM limits.
-      // 3.5 seconds is safe for most API tiers.
+      // Step 2: Generate images with a significant gap to satisfy RPM limits (15 RPM max)
       for (const section of data.sections) {
         try {
-          if (data.sections.indexOf(section) > 0) {
-            await new Promise(r => setTimeout(r, 3500));
-          }
+          // 8 second gap between image requests to be extremely safe
+          await new Promise(r => setTimeout(r, 8000));
           
           const url = await generateImage(section.imagePrompt);
           sectionsWithImages.push({ ...section, imageUrl: url });
@@ -176,7 +181,13 @@ export default function App() {
       setInputText('');
     } catch (err: any) {
       console.error("Newsletter generation failed permanently:", err);
-      setError(`Harvesting interrupted: ${err.message || 'The model was unable to complete the draft due to quota limits. Please wait a minute and try again.'}`);
+      const errorStr = JSON.stringify(err);
+      const isQuota = errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED');
+      setError(
+        isQuota 
+        ? "HARVEST LIMIT REACHED: The Gemini API quota has been exhausted. Please wait at least 60 seconds. The Free Tier has strict 'Requests Per Minute' limits."
+        : `Harvesting interrupted: ${err.message || 'The model was unable to complete the draft. Please try again in a few moments.'}`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -346,6 +357,10 @@ export default function App() {
                 </div>
               ))}
             </div>
+            <div className="flex items-center justify-between mb-4">
+               <p className="text-[9px] font-black text-neutral-300 uppercase">Last Harvested: {marketAsOf || 'Syncing...'}</p>
+               <button onClick={loadMarketTrends} className="p-2 hover:bg-neutral-50 rounded-full text-ag-green"><RefreshCw className="w-3 h-3"/></button>
+            </div>
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
               <span className="text-[10px] font-black uppercase text-neutral-400 group-hover:text-ag-green">Sync Market grounding in Draft</span>
@@ -370,7 +385,7 @@ export default function App() {
                  <div className="w-20 h-20 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
                  <div className="space-y-1">
                    <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
-                   <p className="text-[10px] font-medium text-neutral-300 italic">Respecting quota limits and grounding insights...</p>
+                   <p className="text-[10px] font-medium text-neutral-300 italic">Respecting RPM limits and grounding insights...</p>
                  </div>
                </div>
              ) : newsletter ? (
