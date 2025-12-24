@@ -1,21 +1,22 @@
-17:33:14.914 Running build in Washington, D.C., USA (East) – iad1
-17:33:14.919 Build machine configuration: 2 cores, 8 GB
-17:33:15.219 Cloning github.com/yieldthe1-arch/the-yield (Branch: main, Commit: 94d2a5c)
-17:33:15.904 Cloning completed: 685.000ms
-17:33:16.032 Restored build cache from previous deployment (2UWvqiXmJAMrUjsLsTgifRu5ffJk)
-17:33:16.474 Running "vercel build"
-17:33:16.879 Vercel CLI 50.1.3
-17:33:17.389 Installing dependencies...
-17:33:20.833 
-17:33:20.834 up to date in 3s
-17:33:20.835 
-17:33:20.835 28 packages are looking for funding
-17:33:20.835   run `npm fund` for details
-17:33:20.866 Running "npm run build"
-17:33:20.980 
-17:33:20.981 > the-yield-agriants@1.0.0 build
-17:33:20.981 > tsc && vite build
-17:33:20.982 
-17:33:22.453 App.tsx(3,62): error TS2307: Cannot find module '../types' or its corresponding type declarations.
-17:33:22.454 index.tsx(4,8): error TS1192: Module '"/vercel/path0/App"' has no default export.
-17:33:22.475 Error: Command "npm run build" exited with 2
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "*": ["*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist"]
+}
