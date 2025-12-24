@@ -192,7 +192,7 @@ const App: React.FC = () => {
     try {
       let currentPrices = marketTrends;
       if (includeMarket) {
-        setLoadingStep('Grounding Market Data...');
+        setLoadingStep('Synchronizing Market Data...');
         const fresh = await loadMarketData();
         if (fresh) currentPrices = fresh;
       }
@@ -200,33 +200,39 @@ const App: React.FC = () => {
       setLoadingStep('Synthesizing Edition...');
       const data = await generateNewsletter(allContent, includeMarket ? currentPrices : null);
       setNewsletter(data);
-      setIsLoading(false); 
+      
+      // Clear inputs immediately once data is received
       setCurations([]);
       setInputText('');
+      setIsLoading(false); 
 
+      // Kick off parallel image generation if enabled
       if (generateImages) {
-        for (let i = 0; i < data.sections.length; i++) {
-          const section = data.sections[i];
-          setLoadingStep(`Harvesting Visual ${i+1}/${data.sections.length}...`);
+        setLoadingStep('Harvesting Visuals...');
+        
+        // Execute all image calls in parallel to maximize speed
+        const imagePromises = data.sections.map(async (section, index) => {
           try {
             const url = await generateImage(section.imagePrompt);
             if (url) {
               setNewsletter(prev => {
                 if (!prev) return null;
                 const newSections = [...prev.sections];
-                newSections[i] = { ...newSections[i], imageUrl: url };
+                newSections[index] = { ...newSections[index], imageUrl: url };
                 return { ...prev, sections: newSections };
               });
             }
           } catch (e) {
-            console.warn("Visual failed for prompt: ", section.imagePrompt);
+            console.warn(`Visual harvest failed for: ${section.title}`);
           }
-        }
+        });
+
+        await Promise.all(imagePromises);
       }
       setLoadingStep('');
     } catch (err: any) {
       console.error("Critical snags during generation:", err);
-      setError("The synthesis engine hit a snag. This is likely due to high traffic or API rate limits. Please try again in 30s.");
+      setError("The synthesis engine hit a snag. This usually happens during peak traffic. Please try again in a few seconds.");
       setIsLoading(false);
       setLoadingStep('');
     }
@@ -240,7 +246,7 @@ const App: React.FC = () => {
     }
     setIsSending(true);
     await sleep(2500); 
-    alert(`Success! "The Yield" Edition dispatched to ${subscribers.length} subscribers via AGRIANTS Dispatcher.`);
+    alert(`Success! "The Yield" Edition dispatched to ${subscribers.length} subscribers.`);
     setIsSending(false);
   };
 
@@ -380,7 +386,7 @@ const App: React.FC = () => {
         <div className="space-y-8">
           <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm space-y-6">
             <h3 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest flex items-center gap-2"><Layers className="w-3 h-3" /> Input Harvest</h3>
-            <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste reports, YouTube transcripts, or notes for 'The Yield'..." className="w-full h-44 bg-neutral-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none transition-all placeholder:text-neutral-300" />
+            <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste reports, YouTube transcripts, or notes..." className="w-full h-44 bg-neutral-50 border-none rounded-3xl p-6 text-sm font-medium focus:ring-2 focus:ring-ag-green shadow-inner resize-none transition-all placeholder:text-neutral-300" />
             <button onClick={() => addToStack('text')} className="w-full bg-neutral-100 text-neutral-500 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-ag-green hover:text-white transition-all">Stack Context</button>
             <div className="flex gap-3">
               <div className="flex-[2] flex items-center bg-neutral-50 rounded-2xl px-5 shadow-inner ring-1 ring-neutral-100 focus-within:ring-ag-green transition-all">
@@ -415,11 +421,11 @@ const App: React.FC = () => {
             <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Retrieval Intelligence</h3>
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Grains & Fibers Data</span><span className="text-[9px] text-neutral-400">Fetch live pricing first for clean synthesis.</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Grains & Fibers Data</span><span className="text-[9px] text-neutral-400">Grounded search benchmarks via Gemini 3 Flash.</span></div>
             </label>
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={generateImages} onChange={e => setGenerateImages(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">Flash Visual Harvest</span><span className="text-[9px] text-neutral-400">Powered by Gemini 2.5 Flash Image. High speed synthesis.</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">Flash Visual Harvest</span><span className="text-[9px] text-neutral-400">Parallelized generation. Powered by Gemini 2.5 Flash Image.</span></div>
               <Zap className="w-4 h-4 text-ag-gold animate-pulse" />
             </label>
           </section>
@@ -439,7 +445,7 @@ const App: React.FC = () => {
                <div className="h-full flex flex-col items-center justify-center space-y-8 text-center">
                  <div className="w-24 h-24 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
                  <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
-                 <p className="text-[10px] font-bold text-ag-gold animate-pulse">Running decoupled search & synthesis engines...</p>
+                 <p className="text-[10px] font-bold text-ag-gold animate-pulse">Running decoupled synthesis engine...</p>
                </div>
              ) : newsletter ? (
                <div className="animate-in fade-in duration-1000">
@@ -466,7 +472,7 @@ const App: React.FC = () => {
                         ))}
                       </div>
                       <div className="p-4 bg-neutral-50/50 flex justify-center border-t border-neutral-100">
-                         <span className="text-[8px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-ag-green" /> Grounded via SAFEX & Fiber Global Benchmarks</span>
+                         <span className="text-[8px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-ag-green" /> Grounded via SAFEX Global Benchmarks</span>
                       </div>
                     </div>
 
@@ -479,7 +485,7 @@ const App: React.FC = () => {
                           ) : generateImages ? (
                              <div className="flex flex-col items-center justify-center space-y-4 text-neutral-300">
                                <Loader2 className="w-10 h-10 animate-spin" />
-                               <span className="text-[10px] font-black uppercase tracking-widest">Developing AI Visual...</span>
+                               <span className="text-[10px] font-black uppercase tracking-widest">Harvesting AI Visual...</span>
                              </div>
                           ) : (
                              <ImageIcon className="w-12 h-12 text-neutral-100" />
