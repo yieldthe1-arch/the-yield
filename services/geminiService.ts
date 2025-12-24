@@ -39,24 +39,17 @@ export const generateNewsletter = async (
       parts.push({ text: `User Content: ${item.text}` });
     } else if (item.type === 'youtube' && item.url) {
       parts.push({ text: `YouTube Insights needed from: ${item.url}` });
-    } else if (item.data && item.mimeType) {
-      parts.push({
-        inlineData: {
-          data: item.data.split(',')[1],
-          mimeType: item.mimeType
-        }
-      });
     }
   });
 
   const prompt = `Please write the latest edition of "The Yield" based on the provided content. 
-  ${includeMarketData ? "Search for today's White Maize (SAFEX) and Raw Honey prices in South Africa and include them in the wallet section." : ""}
+  ${includeMarketData ? "Use Google Search to find today's White Maize (SAFEX) and Raw Honey prices in South Africa and include them in the wallet section. Be specific about ZAR prices." : ""}
   Context: ${recognitionDay || 'General Edition'}`;
   
   parts.push({ text: prompt });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-flash-preview',
     contents: [{ parts }],
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
@@ -119,8 +112,8 @@ export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: [{ parts: [{ text: "Current SAFEX White Maize and South African Raw Honey prices today." }] }],
+      model: 'gemini-3-flash-preview',
+      contents: [{ parts: [{ text: "Search for the current SAFEX White Maize price per ton and South African Raw Honey price per kg. Provide these as a JSON array." }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
@@ -142,8 +135,9 @@ export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
     });
     
     return JSON.parse(response.text || "[]");
-  } catch (e) {
+  } catch (e: any) {
     console.error("Market fetch error:", e);
+    if (e.message?.includes('429')) throw new Error("QUOTA_EXHAUSTED");
     return [];
   }
 };
@@ -156,7 +150,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: [{ parts: [{ text: `A clean Morning Brew style illustration for a newsletter: ${prompt}` }] }],
+      contents: [{ parts: [{ text: `A clean Morning Brew style illustration: ${prompt}` }] }],
       config: { 
         imageConfig: { 
           aspectRatio: "16:9" 
