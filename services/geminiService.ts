@@ -24,11 +24,11 @@ Newsletter Structure:
 
 Imagery Instruction:
 Every section MUST include a highly specific 'imagePrompt'.
-- Prompt for cinematic, editorial photography.
-- Specify lighting (e.g., 'golden hour', 'soft studio lighting').
-- Mention the subject clearly (e.g., 'A macro shot of organic South African Raw Honey being drizzled').
-- Explicitly state 'Avoid any text, words, or letters in the image.'
-- Style: 'Clean, professional editorial photography, high resolution, photorealistic.'
+- Your imagePrompts should describe a VIBRANT, DYNAMIC scene.
+- Style: 'Cinematic editorial photography, soft morning light, crisp, photorealistic, 8k'.
+- IMPORTANT: Describe the subject in action (e.g., 'A farmer checking a digital tablet in a sun-drenched corn field' or 'A close-up of fresh honeycomb on a rustic wooden table').
+- Explicitly state 'No text, no letters, no logos in the image.'
+- Ensure the image is visually thematic to the section's specific narrative.
 `;
 
 export const generateNewsletter = async (
@@ -74,7 +74,6 @@ export const generateNewsletter = async (
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        tools: useSearch ? [{ googleSearch: {} }] : [],
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -197,11 +196,10 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   
   const ai = new GoogleGenAI({ apiKey });
   try {
-    // gemini-2.5-flash-image is part of the "free tier" (nano banana) models
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
-        parts: [{ text: `${prompt}. Clean editorial photography style. High detail. photorealistic. NO TEXT IN IMAGE.` }]
+        parts: [{ text: `${prompt}. Style: Cinematic editorial agricultural photography. Professional lighting. Photorealistic. No text.` }]
       },
       config: { 
         imageConfig: { 
@@ -210,20 +208,16 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       }
     });
     
-    const candidates = response.candidates;
-    if (candidates && candidates.length > 0) {
-      const parts = candidates[0].content?.parts;
-      if (parts) {
-        // Iterate through parts to find the image part as per guidelines
-        for (const part of parts) {
-          if (part.inlineData) {
-            return `data:image/png;base64,${part.inlineData.data}`;
-          }
+    // Explicitly iterate parts to find the image part
+    if (response.candidates?.[0]?.content?.parts) {
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          return `data:image/png;base64,${part.inlineData.data}`;
         }
       }
     }
   } catch (e) {
-    console.error("Flash Image generation failed:", e);
+    console.error("Image generation failed:", e);
   }
   return undefined;
 };
