@@ -12,7 +12,7 @@ declare var process: {
  * Global state to enforce a minimum gap between ANY API calls.
  */
 let lastRequestTime = 0;
-const MIN_REQUEST_GAP = 7000; // Increased to 7s for extra safety
+const MIN_REQUEST_GAP = 8000; // 8s minimum between ANY two calls (Text or Image)
 
 /**
  * Utility to wait for a specific duration.
@@ -35,7 +35,7 @@ async function throttle() {
 /**
  * A robust wrapper to handle API calls with exponential backoff.
  */
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 6, delay = 10000): Promise<T> {
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 5, delay = 15000): Promise<T> {
   await throttle();
   try {
     return await fn();
@@ -55,7 +55,8 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 6, delay = 10000
     if (isQuotaError && retries > 0) {
       console.warn(`[Gemini API] Quota Hit. Backing off for ${delay}ms... (${retries} retries left)`);
       await sleep(delay);
-      return callWithRetry(fn, retries - 1, delay * 1.5);
+      // More aggressive backoff for free tier
+      return callWithRetry(fn, retries - 1, delay * 2);
     }
     throw err;
   }
@@ -212,7 +213,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       });
       return JSON.parse(cleanJSON(response.text || "{}"));
-    }, 2, 8000); 
+    }, 1, 10000); 
   } catch (e) {
     return {
       prices: [
@@ -228,6 +229,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   if (!process.env.API_KEY) return undefined;
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
+    // Images are the heaviest. We use 1 retry with a massive delay.
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
@@ -242,9 +244,9 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
         return `data:image/png;base64,${part.inlineData.data}`;
       }
       return undefined;
-    }, 2, 12000); // Massive backoff for image generation
+    }, 1, 25000); 
   } catch (e) {
     console.error("Image generation skipped due to limit.");
+    return undefined;
   }
-  return undefined;
 };
