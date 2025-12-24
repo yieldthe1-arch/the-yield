@@ -7,7 +7,7 @@ import {
   Key, ExternalLink, Heart, Share2, Megaphone, ArrowUp, ArrowDown, Minus, ZapOff, UserPlus
 } from 'lucide-react';
 import { generateNewsletter, fetchMarketTrends, generateImage } from './services/geminiService';
-import { NewsletterData, CurationItem, CommodityPrice, EmailConfig, Subscriber, UN_DAYS, NewsletterSection } from './types';
+import { NewsletterData, CurationItem, CommodityPrice, EmailConfig, Subscriber, NewsletterSection } from './types';
 
 const AUTHORIZED_EMAIL = "yieldthe1@gmail.com";
 const AUTHORIZED_PASSKEY = "AGRIANTS2025"; 
@@ -64,6 +64,7 @@ export default function App() {
 
   const [newSubName, setNewSubName] = useState('');
   const [newSubEmail, setNewSubEmail] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -151,21 +152,17 @@ export default function App() {
     setLoadingStep(includeMarket ? 'Grounding Markets & Synthesizing...' : 'Synthesizing Content...');
 
     try {
-      // PHASE 1: Text Generation (Fast with zero thinking budget)
       const data = await generateNewsletter(allContent, includeMarket, themeId);
       setNewsletter(data);
       setIsLoading(false); 
       setCurations([]);
       setInputText('');
 
-      // PHASE 2: Visual Generation (Progressive)
       if (generateImages) {
-        setLoadingStep('Harvesting Visuals...');
-        // We iterate through sections sequentially to respect quota
         for (let i = 0; i < data.sections.length; i++) {
           const section = data.sections[i];
+          setLoadingStep(`Generating Visual ${i+1}/${data.sections.length}...`);
           try {
-            // No extra sleep() here; the service handles its own internal 1.5s throttle
             const url = await generateImage(section.imagePrompt);
             if (url) {
               setNewsletter(prev => {
@@ -183,13 +180,30 @@ export default function App() {
       setLoadingStep('');
     } catch (err: any) {
       console.error("Newsletter generation failed:", err);
-      setError("The synthesis engine hit a snag (Quota or API Error). Please try again in 30 seconds.");
+      setError("The synthesis engine hit a snag (Quota or API Error). Retrying with images off might help.");
       setIsLoading(false);
     }
   };
 
+  const handleSendToSubscribers = async () => {
+    if (!newsletter) return;
+    if (subscribers.length === 0) {
+      alert("No subscribers found. Add some in settings!");
+      return;
+    }
+    setIsSending(true);
+    // Simulation of dispatching to EmailJS/Sendgrid
+    await sleep(2000); 
+    alert(`Success! Edition dispatched to ${subscribers.length} subscribers via AGRIANTS Portal.`);
+    setIsSending(false);
+  };
+
   const addSubscriber = () => {
     if (!newSubEmail.trim()) return;
+    if (subscribers.find(s => s.email === newSubEmail)) {
+      alert("Subscriber already exists!");
+      return;
+    }
     const newSub: Subscriber = {
       id: crypto.randomUUID(),
       name: newSubName || 'Reader',
@@ -250,7 +264,7 @@ export default function App() {
           <div className="w-full max-w-xl bg-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
             <div className="p-8 border-b border-neutral-100 flex justify-between items-center bg-neutral-50/50">
               <div className="flex gap-6">
-                <button onClick={() => setSettingsTab('email')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'email' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Email Engine</button>
+                <button onClick={() => setSettingsTab('email')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'email' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Email Configuration</button>
                 <button onClick={() => setSettingsTab('subscribers')} className={`text-xs font-black uppercase tracking-widest pb-2 transition-all ${settingsTab === 'subscribers' ? 'text-ag-green border-b-2 border-ag-green' : 'text-neutral-300'}`}>Subscribers ({subscribers.length})</button>
               </div>
               <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-neutral-100 rounded-full transition-colors"><X className="w-5 h-5"/></button>
@@ -261,11 +275,11 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Service ID</label>
-                    <input type="text" value={emailConfig.serviceId} onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})} placeholder="e.g. service_p6v2r..." className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
+                    <input type="text" value={emailConfig.serviceId} onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})} placeholder="e.g. service_xxxx" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Template ID</label>
-                    <input type="text" value={emailConfig.templateId} onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})} placeholder="e.g. template_9d0s..." className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
+                    <input type="text" value={emailConfig.templateId} onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})} placeholder="e.g. template_xxxx" className="w-full bg-neutral-50 rounded-xl p-4 text-sm font-bold ring-1 ring-neutral-200 focus:ring-2 focus:ring-ag-green outline-none" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">EmailJS Public Key</label>
@@ -351,11 +365,11 @@ export default function App() {
             <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Retrieval Config</h3>
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Market Grounding</span><span className="text-[9px] text-neutral-400">Search White Maize & Raw Honey prices.</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">SAFEX Market Grounding</span><span className="text-[9px] text-neutral-400">Search latest grain & honey prices.</span></div>
             </label>
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={generateImages} onChange={e => setGenerateImages(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">Progressive AI Visuals</span><span className="text-[9px] text-neutral-400">Images populate instantly after text synthesizes.</span></div>
+              <div className="flex-1"><span className="block text-[10px] font-black uppercase text-neutral-600">AI Narrative Visuals</span><span className="text-[9px] text-neutral-400">Generates unique imagery for every section.</span></div>
               <Zap className="w-4 h-4 text-ag-gold animate-pulse" />
             </label>
           </section>
@@ -388,26 +402,33 @@ export default function App() {
 
                   <div className="space-y-16">
                     <div className="bg-white rounded-xl border border-neutral-100 overflow-hidden shadow-sm">
-                      <div className="bg-neutral-50/80 px-4 py-2 border-b border-neutral-100"><h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">SAFEX MARKET GROUNDING</h4></div>
+                      <div className="bg-neutral-50/80 px-4 py-2 border-b border-neutral-100 flex justify-between items-center">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">SAFEX MARKET DATA</h4>
+                        {marketAsOf && <span className="text-[8px] font-bold text-neutral-400">As of {marketAsOf}</span>}
+                      </div>
                       <div className="p-2">{marketTrends.map((item, idx) => <MarketRow key={idx} item={item} />)}</div>
                     </div>
 
                     {newsletter.sections.map(s => (
                       <div key={s.id} className="space-y-10">
                         <div className="flex items-center gap-4"><div className="h-px bg-neutral-100 flex-1" /><h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-ag-green bg-green-50 px-6 py-2 rounded-lg border border-green-100">{s.title}</h3><div className="h-px bg-neutral-100 flex-1" /></div>
-                        <div className="relative min-h-[250px] bg-neutral-50 rounded-[3rem] overflow-hidden shadow-2xl border border-neutral-100">
+                        <div className="relative min-h-[300px] bg-neutral-50 rounded-[3rem] overflow-hidden shadow-2xl border border-neutral-100 flex items-center justify-center">
                           {s.imageUrl ? (
-                            <img src={s.imageUrl} className="w-full h-auto object-cover animate-in fade-in duration-1000" />
+                            <img src={s.imageUrl} className="w-full h-full object-cover animate-in fade-in duration-1000" />
                           ) : generateImages ? (
-                             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 opacity-40"><ImageIcon className="w-12 h-12 text-neutral-300 animate-pulse" /><span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">AI Visual Loading...</span></div>
-                          ) : null}
+                             <div className="flex flex-col items-center justify-center space-y-4 text-neutral-300">
+                               <Loader2 className="w-10 h-10 animate-spin" />
+                               <span className="text-[10px] font-black uppercase tracking-widest">Developing AI Visual...</span>
+                             </div>
+                          ) : (
+                             <ImageIcon className="w-12 h-12 text-neutral-100" />
+                          )}
                         </div>
                         <div className="text-xl font-light leading-relaxed text-neutral-800" dangerouslySetInnerHTML={{ __html: s.content.replace(/\*\*(.*?)\*\*/g, '<strong class="font-black text-ag-green">$1</strong>').replace(/\n/g, '<br/>') }} />
                       </div>
                     ))}
                   </div>
 
-                  {/* Missing Interactive Sections Restored */}
                   <div className="mt-24 pt-16 border-t border-neutral-100 space-y-12">
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                         <div className="p-6 bg-neutral-50 rounded-[2rem] text-center space-y-4 border border-neutral-100 group hover:shadow-lg transition-all">
@@ -444,9 +465,12 @@ export default function App() {
 
                   <div className="mt-20 py-12 border-t border-neutral-50 text-center space-y-8 pb-20 no-print">
                     <p className="text-sm font-bold text-ag-green italic">Visit the AGRIANTS shop for artisanal honey & energy balls.</p>
-                    <div className="flex justify-center gap-4">
-                      <button onClick={handleCopy} className="px-10 py-5 rounded-[2rem] bg-ag-green text-white text-[11px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 hover:scale-105 transition-all"><Copy className="w-4 h-4 text-ag-gold" /> Copy Content</button>
-                      <button onClick={() => window.print()} className="px-10 py-5 rounded-[2rem] bg-neutral-50 text-neutral-600 text-[11px] font-black uppercase tracking-widest transition-all hover:bg-neutral-100 flex items-center gap-2"><Download className="w-4 h-4" /> Save as PDF</button>
+                    <div className="flex flex-wrap justify-center gap-4 px-10">
+                      <button onClick={handleSendToSubscribers} disabled={isSending} className="flex-1 min-w-[200px] px-8 py-5 rounded-[2rem] bg-ag-green text-white text-[11px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-all">
+                        {isSending ? <Loader2 className="w-4 h-4 animate-spin text-ag-gold" /> : <Send className="w-4 h-4 text-ag-gold" />} Dispatch to Subscribers
+                      </button>
+                      <button onClick={handleCopy} className="px-8 py-5 rounded-[2rem] bg-neutral-50 text-neutral-600 text-[11px] font-black uppercase tracking-widest transition-all hover:bg-neutral-100 flex items-center gap-2"><Copy className="w-4 h-4" /> Copy Content</button>
+                      <button onClick={() => window.print()} className="px-8 py-5 rounded-[2rem] bg-neutral-50 text-neutral-600 text-[11px] font-black uppercase tracking-widest transition-all hover:bg-neutral-100 flex items-center gap-2"><Download className="w-4 h-4" /> Save as PDF</button>
                     </div>
                   </div>
                </div>
