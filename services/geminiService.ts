@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsletterData, GroundingChunk, CommodityPrice, CurationItem } from "../types";
 
@@ -10,9 +11,10 @@ declare var process: {
 const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
 Task: Produce "The Yield," a smart, punchy newsletter.
-Style: Morning Brew. smart, slightly irreverent.
+Style: Morning Brew style. Smart, slightly irreverent, high-value.
 Tone: Professional but conversational. Avoid GPT-isms.
 Rule: Include exactly one subtle agricultural pun per issue.
+Imagery: Every section must include a detailed 'imagePrompt' for high-quality, professional agricultural photography or minimalist vector art.
 Bold the most important sentence in every paragraph.
 
 Newsletter Structure:
@@ -24,7 +26,8 @@ Newsletter Structure:
 
 export const generateNewsletter = async (
   curations: CurationItem[],
-  includeMarketData: boolean
+  includeMarketData: boolean,
+  themeId: string = 'standard'
 ): Promise<NewsletterData> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API_KEY not configured.");
@@ -32,16 +35,29 @@ export const generateNewsletter = async (
   const ai = new GoogleGenAI({ apiKey });
   
   const parts: any[] = [];
+  
+  // Handle multimedia and text inputs
   curations.forEach(item => {
     if (item.type === 'text' && item.text) {
-      parts.push({ text: `Source Content: ${item.text}` });
+      parts.push({ text: `Source Context: ${item.text}` });
     } else if (item.type === 'youtube' && item.url) {
       parts.push({ text: `Analyze insights from this video: ${item.url}` });
+    } else if ((item.type === 'image' || item.type === 'audio' || item.type === 'video') && item.data && item.mimeType) {
+      parts.push({
+        inlineData: {
+          data: item.data,
+          mimeType: item.mimeType
+        }
+      });
+      parts.push({ text: `Extract agricultural insights from this ${item.type} attachment.` });
     }
   });
 
+  const themeContext = themeId !== 'standard' ? `Special Edition Context: This edition honors ${themeId.replace(/_/g, ' ')}. Please integrate historical facts and the spirit of this UN International Day into the narratives.` : "";
+
   const prompt = `Write today's edition of "The Yield". 
-  ${includeMarketData ? "Use Google Search for today's South African White Maize (SAFEX) price per ton and Raw Honey price per kg (ZAR)." : "Use these benchmarks: White Maize R5420/t, Honey R185/kg."}`;
+  ${themeContext}
+  ${includeMarketData ? "Search Google for today's South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Also check Cotton Lint benchmarks and general fiber market trends. Ensure the 'The Wallet' section includes these live figures." : "Use estimated benchmarks for grains (Maize, Wheat, Soya) and fibers (Cotton) based on recent trends."}`;
   
   parts.push({ text: prompt });
 
@@ -53,7 +69,6 @@ export const generateNewsletter = async (
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         tools: useSearch ? [{ googleSearch: {} }] : [],
-        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -83,13 +98,11 @@ export const generateNewsletter = async (
   };
 
   try {
-    // Attempt with search first if requested
     let response = await executeRequest(includeMarketData);
     return processResponse(response);
   } catch (e: any) {
-    // If search fails due to quota (429), retry without search automatically
-    if (includeMarketData && (e.message?.includes('429') || e.status === 'RESOURCE_EXHAUSTED')) {
-      console.warn("Search quota hit during generation, falling back to static data.");
+    if (e.message?.includes('429') || e.status === 'RESOURCE_EXHAUSTED') {
+      console.warn("Search limit reached, falling back to standard generation.");
       let fallbackResponse = await executeRequest(false);
       return processResponse(fallbackResponse);
     }
@@ -124,11 +137,10 @@ export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search Google: Current SAFEX White Maize price ZAR per ton and SA Raw Honey price ZAR per kg. Return ONLY a JSON array." }] }],
+      contents: [{ parts: [{ text: "Search Google: Today's SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton). Also SA Raw Honey (ZAR/kg) and Cotton Lint benchmarks. Return as JSON array." }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.ARRAY,
           items: {
@@ -149,15 +161,18 @@ export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
     const data = JSON.parse(response.text || "[]");
     return data.length > 0 ? data : getFallbackMarketData();
   } catch (e: any) {
-    console.error("Market search failed:", e);
-    // Return fallback instead of throwing to keep UI clean
     return getFallbackMarketData();
   }
 };
 
 const getFallbackMarketData = (): CommodityPrice[] => [
-  { name: "White Maize", price: "R5,420", unit: "per ton", category: "Commodities", trend: [5200, 5350, 5400, 5380, 5420] },
-  { name: "Raw Honey", price: "R185", unit: "per kg", category: "Commodities", trend: [175, 180, 182, 184, 185] }
+  { name: "White Maize", price: "R5,420", unit: "per ton", category: "Grains", trend: [5200, 5350, 5420] },
+  { name: "Yellow Maize", price: "R5,150", unit: "per ton", category: "Grains", trend: [5100, 5120, 5150] },
+  { name: "Wheat", price: "R6,890", unit: "per ton", category: "Grains", trend: [6700, 6800, 6890] },
+  { name: "Soya Beans", price: "R9,200", unit: "per ton", category: "Grains", trend: [8900, 9100, 9200] },
+  { name: "Sunflower", price: "R8,400", unit: "per ton", category: "Oilseeds", trend: [8200, 8300, 8400] },
+  { name: "Cotton Lint", price: "R42.50", unit: "per lb", category: "Fibers", trend: [41, 42, 42.5] },
+  { name: "Raw Honey", price: "R185", unit: "per kg", category: "Produce", trend: [175, 185] }
 ];
 
 export const generateImage = async (prompt: string): Promise<string | undefined> => {
@@ -168,7 +183,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: [{ parts: [{ text: `A professional, minimalist agricultural illustration: ${prompt}` }] }],
+      contents: [{ parts: [{ text: `A clean, professional illustration for a business newsletter: ${prompt}` }] }],
       config: { imageConfig: { aspectRatio: "16:9" } }
     });
     
@@ -179,7 +194,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       }
     }
   } catch (e) {
-    console.error("Image generation skipped.");
+    console.error("Image generation failed.");
   }
   return undefined;
 };
