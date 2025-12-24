@@ -10,11 +10,9 @@ declare var process: {
 
 /**
  * Global state to enforce a minimum gap between ANY API calls.
- * This is crucial for Free Tier users where concurrent requests 
- * or rapid-fire requests trigger immediate 429s.
  */
 let lastRequestTime = 0;
-const MIN_REQUEST_GAP = 6000; // 6 seconds minimum between any two API calls.
+const MIN_REQUEST_GAP = 7000; // Increased to 7s for extra safety
 
 /**
  * Utility to wait for a specific duration.
@@ -37,7 +35,7 @@ async function throttle() {
 /**
  * A robust wrapper to handle API calls with exponential backoff.
  */
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 6, delay = 8000): Promise<T> {
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 6, delay = 10000): Promise<T> {
   await throttle();
   try {
     return await fn();
@@ -55,9 +53,8 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 6, delay = 8000)
       errorMessage.includes('rate limit');
 
     if (isQuotaError && retries > 0) {
-      console.warn(`[Gemini API] Rate limit hit. Retrying in ${delay}ms... (${retries} attempts left)`);
+      console.warn(`[Gemini API] Quota Hit. Backing off for ${delay}ms... (${retries} retries left)`);
       await sleep(delay);
-      // Exponential backoff
       return callWithRetry(fn, retries - 1, delay * 1.5);
     }
     throw err;
@@ -122,7 +119,7 @@ export const generateNewsletter = async (
 
   const prompt = `Generate "The Yield" Edition. 
   ${themeId !== 'standard' ? `Theme: ${themeId}` : ""}
-  ${includeMarketData ? "Use Google Search for today's SAFEX White Maize and Raw Honey prices (ZAR) in SA." : ""}
+  ${includeMarketData ? "Use Google Search for latest SAFEX White Maize and Raw Honey prices (ZAR) in SA." : ""}
   Return ONLY JSON. No markdown blocks.`;
   
   parts.push({ text: prompt });
@@ -215,7 +212,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       });
       return JSON.parse(cleanJSON(response.text || "{}"));
-    }, 2, 6000); 
+    }, 2, 8000); 
   } catch (e) {
     return {
       prices: [
@@ -235,16 +232,19 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `${prompt}. Cinematic editorial photography, morning light, crisp focus. No text.` }]
+          parts: [{ text: `${prompt}. High-resolution editorial lifestyle photography, morning light, crisp focus. No text.` }]
         },
         config: { imageConfig: { aspectRatio: "16:9" } }
       });
       
       const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-      return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : undefined;
-    }, 3, 7000); 
+      if (part && part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+      return undefined;
+    }, 2, 12000); // Massive backoff for image generation
   } catch (e) {
-    console.error("Image generation failed permanently.");
+    console.error("Image generation skipped due to limit.");
   }
   return undefined;
 };
