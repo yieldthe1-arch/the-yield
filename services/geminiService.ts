@@ -219,4 +219,3 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
     return undefined;
   }
 };
-
