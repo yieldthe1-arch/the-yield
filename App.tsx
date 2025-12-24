@@ -7,7 +7,7 @@ import {
   Key, ExternalLink, Heart, Share2, Megaphone, ArrowUp, ArrowDown, Minus, ZapOff
 } from 'lucide-react';
 import { generateNewsletter, fetchMarketTrends, generateImage } from './services/geminiService';
-import { NewsletterData, CurationItem, CommodityPrice, EmailConfig, Subscriber, UN_DAYS } from './types';
+import { NewsletterData, CurationItem, CommodityPrice, EmailConfig, Subscriber, UN_DAYS, NewsletterSection } from './types';
 
 const AUTHORIZED_EMAIL = "yieldthe1@gmail.com";
 const AUTHORIZED_PASSKEY = "AGRIANTS2025"; 
@@ -104,7 +104,6 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  // Countdown logic for the loading screen
   useEffect(() => {
     let timer: any;
     if (countdown > 0) {
@@ -168,48 +167,61 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setNewsletter(null);
-    setLoadingStep('Initializing Secure API Connection...');
-    setCountdown(7); // Initial 7s buffer defined in geminiService
+    setLoadingStep('Harvesting Intelligence (Text Phase)...');
+    setCountdown(8); // Starting cooldown buffer
 
     try {
-      // Step 1: Generate text
+      // PHASE 1: Generate the Text Content (Faster, higher priority)
       const data = await generateNewsletter(allContent, includeMarket, themeId);
       
-      const sectionsWithImages = [];
-      
-      // Step 2: Generate images
-      if (generateImages) {
-        for (const section of data.sections) {
-          try {
-            setLoadingStep(`Quota Cooldown: Fetching visual for "${section.title}"...`);
-            setCountdown(9); // 9s gap for images
-            await new Promise(r => setTimeout(r, 9000));
-            const url = await generateImage(section.imagePrompt);
-            sectionsWithImages.push({ ...section, imageUrl: url });
-          } catch (imgErr) {
-            console.warn("Image skipped");
-            sectionsWithImages.push(section);
-          }
-        }
-      } else {
-        sectionsWithImages.push(...data.sections);
-      }
-      
-      setNewsletter({ ...data, sections: sectionsWithImages });
+      // DISPLAY IMMEDIATELY
+      setNewsletter(data);
+      setIsLoading(false); // Stop blocking the UI
       setCurations([]);
       setInputText('');
+
+      // PHASE 2: Background Image Generation (The "Progressive" phase)
+      if (generateImages) {
+        setLoadingStep('Fetching visuals in the background...');
+        
+        // We iterate through sections and update state as images arrive
+        for (let i = 0; i < data.sections.length; i++) {
+          const section = data.sections[i];
+          
+          // Show progress in a non-blocking toast or banner if we wanted, 
+          // but for now we just show a countdown on the image placeholder.
+          
+          // Safety gap between background requests
+          setCountdown(12);
+          await new Promise(r => setTimeout(r, 12000));
+          
+          try {
+            const url = await generateImage(section.imagePrompt);
+            if (url) {
+              setNewsletter(prev => {
+                if (!prev) return null;
+                const newSections = [...prev.sections];
+                newSections[i] = { ...newSections[i], imageUrl: url };
+                return { ...prev, sections: newSections };
+              });
+            }
+          } catch (e) {
+            console.warn(`Failed to background fetch image for ${section.title}`);
+          }
+        }
+      }
+      setLoadingStep('');
     } catch (err: any) {
       console.error("Newsletter generation failed:", err);
       const errorStr = JSON.stringify(err);
       const isQuota = errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED');
       setError(
         isQuota 
-        ? "HARVEST LIMIT: You've reached the Gemini Free Tier 'Requests Per Minute' limit. Google requires a 60-second cooldown for free users."
+        ? "HARVEST LIMIT: You've reached the Gemini Free Tier 'Requests Per Minute' limit. Please wait 60 seconds. Tip: Try disabling 'AI Image Generation' for instant text drafts."
         : `Harvesting interrupted: ${err.message || 'Connection lost.'}`
       );
-    } finally {
       setIsLoading(false);
-      setLoadingStep('');
+    } finally {
       setCountdown(0);
     }
   };
@@ -369,28 +381,28 @@ export default function App() {
           )}
 
           <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm space-y-4">
-            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Mode & Grounding</h3>
+            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Harvesting Mode</h3>
             
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
               <div className="flex-1">
-                <span className="block text-[10px] font-black uppercase text-neutral-600">Market Grounding</span>
-                <span className="text-[9px] text-neutral-400">Search latest SAFEX prices via Google.</span>
+                <span className="block text-[10px] font-black uppercase text-neutral-600">Live Market Grounding</span>
+                <span className="text-[9px] text-neutral-400">Search latest SAFEX prices (Adds 10s to text phase).</span>
               </div>
             </label>
 
             <label className={`flex items-center gap-3 cursor-pointer group p-4 rounded-2xl border transition-all ${generateImages ? 'bg-ag-green/5 border-ag-green/20' : 'bg-neutral-50 border-neutral-100'}`}>
               <input type="checkbox" checked={generateImages} onChange={e => setGenerateImages(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
               <div className="flex-1">
-                <span className={`block text-[10px] font-black uppercase ${generateImages ? 'text-ag-green' : 'text-neutral-600'}`}>AI Image Generation</span>
-                <span className="text-[9px] text-neutral-400">Creates custom visuals for sections. (Higher 429 risk)</span>
+                <span className={`block text-[10px] font-black uppercase ${generateImages ? 'text-ag-green' : 'text-neutral-600'}`}>Progressive AI Visuals</span>
+                <span className="text-[9px] text-neutral-400">Images harvest in the background while you read.</span>
               </div>
-              {generateImages ? <Zap className="w-4 h-4 text-ag-gold" /> : <ZapOff className="w-4 h-4 text-neutral-300" />}
+              {generateImages ? <Zap className="w-4 h-4 text-ag-gold animate-pulse" /> : <ZapOff className="w-4 h-4 text-neutral-300" />}
             </label>
 
-            <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 mt-2">
-              <p className="text-[9px] font-medium text-blue-600 leading-relaxed italic">
-                Tip: For faster drafts, disable <strong>AI Image Generation</strong> to skip the 30-second image buffer.
+            <div className="p-4 bg-ag-green/5 rounded-2xl border border-ag-green/10 mt-2">
+              <p className="text-[9px] font-bold text-ag-green leading-relaxed uppercase tracking-tighter">
+                Note: Progressive Mode loads text FIRST to bypass total quota failures.
               </p>
             </div>
           </section>
@@ -400,7 +412,7 @@ export default function App() {
               <div className="flex items-start gap-4 text-xs font-black">
                 <AlertCircle className="w-6 h-6 flex-shrink-0 mt-0.5"/>
                 <div className="flex-1">
-                  <span className="block font-bold mb-1 uppercase tracking-tight">Generation Throttled</span>
+                  <span className="block font-bold mb-1 uppercase tracking-tight">Harvest Interrupted</span>
                   <span className="text-[10px] font-medium opacity-80 block leading-normal">{error}</span>
                 </div>
               </div>
@@ -409,6 +421,16 @@ export default function App() {
         </div>
 
         <div className="bg-white rounded-[3.5rem] border border-neutral-200 shadow-2xl min-h-[900px] flex flex-col overflow-hidden sticky top-28">
+           {loadingStep && (
+             <div className="absolute top-0 left-0 w-full z-10 p-4 bg-ag-green text-white text-[9px] font-black uppercase tracking-[0.3em] flex items-center justify-between px-10 animate-in slide-in-from-top duration-500">
+               <div className="flex items-center gap-4">
+                 <Loader2 className="w-3 h-3 animate-spin text-ag-gold" />
+                 <span>{loadingStep}</span>
+               </div>
+               {countdown > 0 && <span>Cooldown: {countdown}s</span>}
+             </div>
+           )}
+
            <div className="p-12 flex-1 overflow-y-auto custom-scrollbar">
              {isLoading ? (
                <div className="h-full flex flex-col items-center justify-center space-y-8 text-center">
@@ -422,8 +444,7 @@ export default function App() {
                  </div>
                  <div className="space-y-3">
                    <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
-                   <p className="text-[10px] font-bold text-ag-gold animate-pulse">{loadingStep}</p>
-                   {countdown > 0 && <p className="text-[9px] text-neutral-400 uppercase font-black tracking-widest">Enforcing Quota Safety Buffer</p>}
+                   <p className="text-[10px] font-bold text-ag-gold animate-pulse">Synchronizing Grain & Growth Insights...</p>
                  </div>
                </div>
              ) : newsletter ? (
@@ -458,7 +479,18 @@ export default function App() {
                     {newsletter.sections.map(s => (
                       <div key={s.id} className="space-y-10">
                         <div className="flex items-center gap-4"><div className="h-px bg-neutral-100 flex-1" /><h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-ag-green bg-green-50 px-6 py-2 rounded-lg border border-green-100">{s.title}</h3><div className="h-px bg-neutral-100 flex-1" /></div>
-                        {s.imageUrl && <img src={s.imageUrl} className="w-full h-auto min-h-[350px] object-cover rounded-[3rem] shadow-2xl border border-neutral-100" />}
+                        
+                        <div className="relative min-h-[250px] bg-neutral-50 rounded-[3rem] overflow-hidden shadow-2xl border border-neutral-100">
+                          {s.imageUrl ? (
+                            <img src={s.imageUrl} className="w-full h-auto object-cover animate-in fade-in duration-1000" />
+                          ) : generateImages ? (
+                             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 opacity-40 grayscale group">
+                               <ImageIcon className="w-12 h-12 text-neutral-300 animate-pulse" />
+                               <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Developing Visual...</span>
+                             </div>
+                          ) : null}
+                        </div>
+
                         <div className="text-xl font-light leading-relaxed text-neutral-800" dangerouslySetInnerHTML={{ __html: s.content.replace(/\*\*(.*?)\*\*/g, '<strong class="font-black text-ag-green">$1</strong>').replace(/\n/g, '<br/>') }} />
                       </div>
                     ))}
