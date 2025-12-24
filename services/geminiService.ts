@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { NewsletterData, GroundingChunk, CommodityPrice, CurationItem } from "../types";
+import { NewsletterData, CommodityPrice, CurationItem } from "../types";
 
 declare var process: {
   env: {
@@ -10,27 +10,28 @@ declare var process: {
 
 /**
  * Global state to enforce a minimum gap between ANY API calls.
- * Optimized to 1.5s for a snappier feel while maintaining quota safety.
+ * Increased to 2.5s for images to significantly reduce 429 quota errors.
  */
 let lastRequestTime = 0;
-const MIN_REQUEST_GAP = 1500; 
+const MIN_REQUEST_GAP = 2500; 
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function throttle() {
+async function throttle(extraDelay = 0) {
   const now = Date.now();
   const timeSinceLast = now - lastRequestTime;
-  if (timeSinceLast < MIN_REQUEST_GAP) {
-    const waitTime = MIN_REQUEST_GAP - timeSinceLast;
+  const gap = MIN_REQUEST_GAP + extraDelay;
+  if (timeSinceLast < gap) {
+    const waitTime = gap - timeSinceLast;
     await sleep(waitTime);
   }
   lastRequestTime = Date.now();
 }
 
 /**
- * Robust wrapper for API calls with specialized handling for image vs text retries.
+ * Robust wrapper for API calls with specialized handling for quota errors.
  */
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 3000): Promise<T> {
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 4, delay = 4000): Promise<T> {
   await throttle();
   
   try {
@@ -45,7 +46,7 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 3000)
       errorString.includes('resource_exhausted');
 
     if (isQuotaError && retries > 0) {
-      console.warn(`[Gemini API] Quota limit. Retrying in ${delay}ms...`);
+      console.warn(`[Gemini API] Quota limit hit. Retrying in ${delay}ms... (${retries} retries left)`);
       await sleep(delay);
       return callWithRetry(fn, retries - 1, delay * 2);
     }
@@ -64,7 +65,7 @@ const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
 Task: Produce "The Yield," a high-value, witty, and educational newsletter.
 Style: Morning Brew style (smart, punchy, slightly irreverent).
-Tone: Professional but conversational. NO AI cliches like "delve" or "tapestry".
+Tone: Professional but conversational. NO AI cliches.
 Rule: Include exactly one subtle agricultural pun per issue.
 Bold the most important sentence in every paragraph.
 
@@ -74,7 +75,7 @@ Structure:
 - [THE WALLET]: Investing education + live market data analogies.
 - [THE BREAKROOM]: 1-question agricultural trivia.
 
-Images: Provide unique 'imagePrompt' for each section. High-end editorial photography style.
+Images: Provide unique 'imagePrompt' for each section. Editorial lifestyle photography style.
 `;
 
 export const generateNewsletter = async (
@@ -93,7 +94,7 @@ export const generateNewsletter = async (
     return '';
   }).filter(Boolean).join('\n\n');
 
-  parts.push({ text: `DATA:\n${sourceContext || "Latest agricultural business news."}` });
+  parts.push({ text: `DATA:\n${sourceContext || "Latest agricultural industry trends."}` });
 
   const prompt = `Generate "The Yield" Edition. ${themeId !== 'standard' ? `Theme: ${themeId}` : ""}
   ${includeMarketData ? "IMPORTANT: Retrieve current SAFEX White Maize and Raw Honey prices (ZAR) in South Africa." : ""}
@@ -108,7 +109,7 @@ export const generateNewsletter = async (
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 }, // Instant reasoning
+        thinkingConfig: { thinkingBudget: 0 },
         tools: includeMarketData ? [{ googleSearch: {} }] : [],
         responseSchema: {
           type: Type.OBJECT,
@@ -191,7 +192,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       });
       return JSON.parse(cleanJSON(response.text || "{}"));
-    }, 1, 2000); 
+    }, 1, 3000); 
   } catch (e) {
     return {
       prices: [
@@ -207,21 +208,23 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   if (!process.env.API_KEY) return undefined;
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
-    // Images are rate-limited separately; we use a longer delay and fewer retries
+    // Adding extra delay for images to avoid bursting the quota
+    await throttle(2000); 
+    
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `Editorial agricultural photography of ${prompt}. Clean, sunlight, cinematic lighting, no text, high resolution.` }]
+          parts: [{ text: `High-resolution editorial photography of ${prompt}. Sunlight, realistic, no text, agricultural theme.` }]
         },
         config: { imageConfig: { aspectRatio: "16:9" } }
       });
       
       const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : undefined;
-    }, 1, 5000); 
+    }, 3, 6000); 
   } catch (e) {
-    console.error("Image generation failed:", e);
+    console.error("Image generation failed permanently for prompt:", prompt);
     return undefined;
   }
 };
