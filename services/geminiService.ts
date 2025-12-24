@@ -10,25 +10,25 @@ declare var process: {
 
 const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
-Task: Produce "The Yield," a smart, punchy newsletter.
+Task: Produce "The Yield," a smart, punchy, and professional newsletter.
 Style: Morning Brew style (smart, witty, educational, slightly irreverent).
-Tone: Professional but conversational. Avoid "GPT-isms" like "delve" or "tapestry."
+Tone: Professional but conversational. Avoid generic AI fluff like "delve" or "tapestry."
 Rule: Include exactly one subtle agricultural pun per issue.
 Bold the most important sentence in every paragraph.
 
 Newsletter Structure:
 - [THE FIELD REPORT]: Business insights for farmers.
 - [SUPERFOOD SPOTLIGHT]: Facts and recipes for niche health items.
-- [THE WALLET]: Investing education + live market data found via search. Use a farm analogy for finance.
+- [THE WALLET]: Investing education + live market data. Use a farm analogy for finance.
 - [THE BREAKROOM]: A 1-question agricultural or food history trivia.
 
 Imagery Instruction:
 Every section MUST include a highly specific 'imagePrompt'.
-- Your imagePrompts should describe a VIBRANT, DYNAMIC scene.
-- Style: 'Cinematic editorial photography, soft morning light, crisp, photorealistic, 8k'.
-- IMPORTANT: Describe the subject in action (e.g., 'A farmer checking a digital tablet in a sun-drenched corn field' or 'A close-up of fresh honeycomb on a rustic wooden table').
-- Explicitly state 'No text, no letters, no logos in the image.'
-- Ensure the image is visually thematic to the section's specific narrative.
+- Prompt for: Cinematic editorial photography, high-resolution, photorealistic.
+- Subject: Describe the subject clearly in an agricultural or culinary context.
+- Lighting: Mention 'soft morning sun' or 'vivid natural lighting'.
+- Restriction: Explicitly state 'No text, no letters, no logos in the image.'
+- Goal: Create a visual that acts as a lead image for the section's headline.
 `;
 
 export const generateNewsletter = async (
@@ -59,11 +59,11 @@ export const generateNewsletter = async (
     }
   });
 
-  const themeContext = themeId !== 'standard' ? `Special Edition Context: This edition honors ${themeId.replace(/_/g, ' ')}. Please integrate the spirit of this event into the narratives.` : "";
+  const themeContext = themeId !== 'standard' ? `Special Edition: This issue honors ${themeId.replace(/_/g, ' ')}.` : "";
 
   const prompt = `Write today's edition of "The Yield". 
   ${themeContext}
-  ${includeMarketData ? "Search Google for today's (latest reported) South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Ensure the 'The Wallet' section includes these exact figures and the DATE they were recorded." : "Use estimated benchmarks for South African grains."}`;
+  ${includeMarketData ? "Search Google for latest SAFEX grain prices (White/Yellow Maize, Wheat, Soya) and Raw Honey prices in South Africa (ZAR). Include these in 'The Wallet' with the DATE they were recorded." : "Use current market estimates."}`;
   
   parts.push({ text: prompt });
 
@@ -74,6 +74,7 @@ export const generateNewsletter = async (
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
+        tools: useSearch ? [{ googleSearch: {} }] : [],
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -95,7 +96,7 @@ export const generateNewsletter = async (
                 required: ["id", "title", "content", "imagePrompt"]
               }
             },
-            marketDate: { type: Type.STRING, description: "The date the reported market prices were recorded (e.g., 'March 10, 2025')." }
+            marketDate: { type: Type.STRING }
           },
           required: ["header", "sections"]
         }
@@ -104,35 +105,30 @@ export const generateNewsletter = async (
   };
 
   try {
-    let response = await executeRequest(includeMarketData);
-    return processResponse(response);
+    const response = await executeRequest(includeMarketData);
+    if (!response.text) throw new Error("Empty response from AI.");
+    const result = JSON.parse(response.text);
+    const sources: { title: string; uri: string }[] = [];
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks as GroundingChunk[];
+    
+    if (groundingChunks) {
+      groundingChunks.forEach(chunk => {
+        if (chunk.web) sources.push({ title: chunk.web.title, uri: chunk.web.uri });
+      });
+    }
+
+    return {
+      ...result,
+      sources,
+      generatedAt: new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
+    };
   } catch (e: any) {
-    if (e.message?.includes('429') || e.status === 'RESOURCE_EXHAUSTED') {
-      console.warn("Search limit reached, falling back to standard generation.");
-      let fallbackResponse = await executeRequest(false);
-      return processResponse(fallbackResponse);
+    if (e.message?.includes('429')) {
+      const fallback = await executeRequest(false);
+      return { ...JSON.parse(fallback.text || "{}"), sources: [], generatedAt: new Date().toLocaleDateString() };
     }
     throw e;
   }
-};
-
-const processResponse = (response: any): NewsletterData => {
-  if (!response.text) throw new Error("Model failed to generate content.");
-  const result = JSON.parse(response.text);
-  const sources: { title: string; uri: string }[] = [];
-  const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks as GroundingChunk[];
-  
-  if (groundingChunks) {
-    groundingChunks.forEach(chunk => {
-      if (chunk.web) sources.push({ title: chunk.web.title, uri: chunk.web.uri });
-    });
-  }
-
-  return {
-    ...result,
-    sources,
-    generatedAt: new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
-  };
 };
 
 export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], asOf: string}> => {
@@ -143,7 +139,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search Google: CURRENT latest SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton) as of today. Also latest South African Raw Honey prices. Return as JSON with 'prices' (array) and 'asOf' (date string)." }] }],
+      contents: [{ parts: [{ text: "Search latest SAFEX prices (Maize, Wheat, Soya) and Raw Honey in South Africa. Return JSON: { prices: [], asOf: '' }" }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
@@ -170,23 +166,15 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       }
     });
-    
     const data = JSON.parse(response.text || "{}");
-    return {
-      prices: data.prices && data.prices.length > 0 ? data.prices : getFallbackMarketData(),
-      asOf: data.asOf || new Date().toLocaleDateString()
-    };
-  } catch (e: any) {
-    return { prices: getFallbackMarketData(), asOf: "Recent Benchmarks" };
+    return { prices: data.prices || getFallbackMarketData(), asOf: data.asOf || new Date().toLocaleDateString() };
+  } catch {
+    return { prices: getFallbackMarketData(), asOf: "Current Benchmarks" };
   }
 };
 
 const getFallbackMarketData = (): CommodityPrice[] => [
   { name: "White Maize", price: "R5,420", unit: "per ton", category: "Grains", trend: [5200, 5350, 5420] },
-  { name: "Yellow Maize", price: "R5,150", unit: "per ton", category: "Grains", trend: [5100, 5120, 5150] },
-  { name: "Wheat", price: "R6,890", unit: "per ton", category: "Grains", trend: [6700, 6800, 6890] },
-  { name: "Soya Beans", price: "R9,200", unit: "per ton", category: "Grains", trend: [8900, 9100, 9200] },
-  { name: "Sunflower", price: "R8,400", unit: "per ton", category: "Oilseeds", trend: [8200, 8300, 8400] },
   { name: "Raw Honey", price: "R185", unit: "per kg", category: "Produce", trend: [175, 185] }
 ];
 
@@ -199,16 +187,11 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
-        parts: [{ text: `${prompt}. Style: Cinematic editorial agricultural photography. Professional lighting. Photorealistic. No text.` }]
+        parts: [{ text: `${prompt}. High-quality editorial photography. NO TEXT.` }]
       },
-      config: { 
-        imageConfig: { 
-          aspectRatio: "16:9"
-        }
-      }
+      config: { imageConfig: { aspectRatio: "16:9" } }
     });
     
-    // Explicitly iterate parts to find the image part
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData) {
@@ -217,7 +200,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       }
     }
   } catch (e) {
-    console.error("Image generation failed:", e);
+    console.error("Image API Error:", e);
   }
   return undefined;
 };
