@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Sprout, Copy, TrendingUp, Loader2, AlertCircle, Plus, Trash2,
