@@ -11,7 +11,7 @@ export interface NewsletterSection {
 export interface NewsletterData {
   header: {
     vibeCheck: string;
-    recognitionDay?: string;
+    theme?: string;
   };
   sections: NewsletterSection[];
   sources: { title: string; uri: string }[];
@@ -29,9 +29,9 @@ export interface CurationItem {
   id: string;
   type: 'text' | 'image' | 'audio' | 'video' | 'youtube';
   text?: string;
-  data?: string; // base64 for files
+  data?: string; 
   mimeType?: string;
-  url?: string; // for YouTube
+  url?: string; 
   timestamp: string;
 }
 
@@ -39,13 +39,14 @@ export interface CommodityPrice {
   name: string;
   price: string;
   unit: string;
-  category: 'Commodities' | 'ETFs';
+  category: string;
   trend: number[];
 }
 
 export interface Subscriber {
   id: string;
   email: string;
+  name: string;
   addedAt: string;
 }
 
@@ -54,16 +55,16 @@ export interface EmailConfig {
   senderEmail: string;
   provider: 'sendgrid' | 'emailjs' | 'aws_ses';
   apiKey: string;
-  serviceId?: string; // Specific to EmailJS
-  templateId?: string; // Specific to EmailJS
+  serviceId?: string;
+  templateId?: string;
 }
 
-export interface DeliveryLog {
-  id: string;
-  recipient: string;
-  status: 'sent' | 'failed';
-  timestamp: string;
-  referralLink: string;
-}
-
-export type LogoTheme = 'regular' | 'custom';
+export const UN_DAYS = [
+  { id: 'standard', name: 'Standard Edition' },
+  { id: 'world_pulses', name: 'World Pulses Day (Feb 10)' },
+  { id: 'world_water', name: 'World Water Day (Mar 22)' },
+  { id: 'world_bee', name: 'World Bee Day (May 20)' },
+  { id: 'world_environment', name: 'World Environment Day (Jun 5)' },
+  { id: 'world_food', name: 'World Food Day (Oct 16)' },
+  { id: 'world_soil', name: 'World Soil Day (Dec 5)' }
+];
