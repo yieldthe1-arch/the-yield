@@ -42,6 +42,7 @@ export interface CommodityPrice {
   unit: string;
   category: string;
   trend: number[];
+  confirmDate?: string;
 }
 
 export interface Subscriber {
