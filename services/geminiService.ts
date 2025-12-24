@@ -9,26 +9,32 @@ declare const process: {
 };
 
 /**
- * Global state to enforce a minimum gap between API calls.
+ * Global state to enforce gaps between API calls.
+ * Text models have higher limits than Image models.
  */
-let lastRequestTime = 0;
-const MIN_REQUEST_GAP = 3000; 
+let lastTextRequestTime = 0;
+let lastImageRequestTime = 0;
+const TEXT_GAP = 500; 
+const IMAGE_GAP = 2500;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function throttle(extraDelay = 0) {
+async function throttle(type: 'text' | 'image') {
   const now = Date.now();
-  const timeSinceLast = now - lastRequestTime;
-  const gap = MIN_REQUEST_GAP + extraDelay;
+  const lastTime = type === 'text' ? lastTextRequestTime : lastImageRequestTime;
+  const gap = type === 'text' ? TEXT_GAP : IMAGE_GAP;
+  
+  const timeSinceLast = now - lastTime;
   if (timeSinceLast < gap) {
-    const waitTime = gap - timeSinceLast;
-    await sleep(waitTime);
+    await sleep(gap - timeSinceLast);
   }
-  lastRequestTime = Date.now();
+  
+  if (type === 'text') lastTextRequestTime = Date.now();
+  else lastImageRequestTime = Date.now();
 }
 
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 5000): Promise<T> {
-  await throttle();
+async function callWithRetry<T>(fn: () => Promise<T>, type: 'text' | 'image' = 'text', retries = 2, delay = 3000): Promise<T> {
+  await throttle(type);
   
   try {
     return await fn();
@@ -41,36 +47,32 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 5000)
       errorString.includes('resource_exhausted');
 
     if (isQuotaError && retries > 0) {
-      console.warn(`Quota hit. Retrying in ${delay}ms...`);
+      console.warn(`Gemini Quota hit for ${type}. Retrying in ${delay}ms...`);
       await sleep(delay);
-      return callWithRetry(fn, retries - 1, delay * 2);
+      return callWithRetry(fn, type, retries - 1, delay * 2);
     }
     throw err;
   }
 }
 
 const cleanJSON = (text: string): string => {
-  return text
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .trim();
+  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  return cleaned;
 };
 
 const SYSTEM_INSTRUCTION = `
-Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
-Task: Produce "The Yield," a high-value, witty, and educational newsletter.
-Style: Morning Brew style (smart, punchy, slightly irreverent).
-Tone: Professional but conversational. NO AI cliches.
-Rule: Include exactly one subtle agricultural pun per issue.
-Bold the most important sentence in every paragraph.
+Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative.
+Product: "The Yield" Newsletter.
+Style: Morning Brew (smart, punchy, witty).
+Rule: Exactly one subtle agricultural pun. Bold key summary sentences.
 
 Structure:
-- [THE FIELD REPORT]: Business/Tech insights.
-- [SUPERFOOD SPOTLIGHT]: Facts/hacks for niche health.
-- [THE WALLET]: Investing education + live market data analogies.
-- [THE BREAKROOM]: 1-question agricultural trivia.
+- FIELD REPORT: Business/Tech.
+- SUPERFOOD SPOTLIGHT: Health facts + quick hack.
+- THE WALLET: Farm-analogy finance + Market Data integration.
+- THE BREAKROOM: 1-question trivia.
 
-Images: Provide unique 'imagePrompt' for each section. Editorial lifestyle photography style.
+Image Prompts: Lifestyle editorial photography, natural light, no text.
 `;
 
 export const generateNewsletter = async (
@@ -81,30 +83,27 @@ export const generateNewsletter = async (
   if (!process.env.API_KEY) throw new Error("API_KEY not found.");
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const parts: any[] = [];
   
   const sourceContext = curations.map(c => {
-    if (c.type === 'text') return `[TEXT]: ${c.text}`;
+    if (c.type === 'text') return `[CONTEXT]: ${c.text}`;
     if (c.type === 'youtube') return `[YT]: ${c.url}`;
     return '';
   }).filter(Boolean).join('\n\n');
 
   const marketContext = marketData 
-    ? `CURRENT MARKET TRENDS:\n${marketData.map(m => `${m.name}: ${m.price} per ${m.unit} (${m.category}) - Last Confirmed: ${m.confirmDate}`).join('\n')}`
-    : "No live market data available.";
+    ? `MARKET TRENDS:\n${marketData.map(m => `${m.name}: ${m.price} (${m.category})`).join('\n')}`
+    : "No market data available.";
 
-  parts.push({ text: `DATA:\n${sourceContext || "General agricultural industry news."}\n\n${marketContext}` });
-
-  const prompt = `Generate "The Yield" Edition. ${themeId !== 'standard' ? `Theme: ${themeId}` : ""}
-  Incorporate the provided Market Trends into 'The Wallet' section using clever farm-to-finance analogies.
-  Output strictly as JSON.`;
-  
-  parts.push({ text: prompt });
+  const prompt = `Generate "The Yield" Edition JSON. 
+  ${themeId !== 'standard' ? `Special Theme: ${themeId}` : ""}
+  CONTEXT DATA: ${sourceContext || "General industry news."}
+  ${marketContext}
+  Use SAFEX benchmarks for 'The Wallet'.`;
 
   return callWithRetry(async () => {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts }],
+      contents: [{ parts: [{ text: prompt }] }],
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
@@ -137,13 +136,16 @@ export const generateNewsletter = async (
       },
     });
 
-    const result = JSON.parse(cleanJSON(response.text || "{}"));
+    const text = response.text;
+    if (!text) throw new Error("Empty response from AI engine.");
+    
+    const result = JSON.parse(cleanJSON(text));
     return {
       ...result,
       sources: [],
       generatedAt: new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
     };
-  }); 
+  }, 'text'); 
 };
 
 export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], asOf: string}> => {
@@ -154,7 +156,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Sunflower Seed, Cotton, and Wool benchmarks in South Africa. Return JSON with name, current price, unit, category, trend (last 5 values), and confirmDate (e.g. 'Feb 24')." }] }],
+        contents: [{ parts: [{ text: "Search current SAFEX prices for White Maize, Yellow Maize, Sunflower, Cotton, Wool in RSA. Return JSON with price, trend, and confirmDate." }] }],
         config: {
           tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
@@ -182,8 +184,9 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       });
       return JSON.parse(cleanJSON(response.text || "{}"));
-    }, 1, 3000); 
+    }, 'text', 1, 3000); 
   } catch (e) {
+    // Return hardcoded benchmarks if search fails to prevent app lock
     return {
       prices: [
         { name: "White Maize", price: "R5,380", unit: "ton", category: "Grains", trend: [5100, 5200, 5150, 5300, 5380], confirmDate: "Feb 24" },
@@ -200,22 +203,20 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   if (!process.env.API_KEY) return undefined;
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
-    await throttle(4000); 
-    
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `Professional editorial photography of ${prompt}. Natural lighting, clear focus, agricultural high-end lifestyle style. No text.` }]
+          parts: [{ text: `Professional editorial photography: ${prompt}. Natural light, high-end agriculture lifestyle. No text.` }]
         },
         config: { imageConfig: { aspectRatio: "16:9" } }
       });
       
       const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : undefined;
-    }, 2, 8000); 
+    }, 'image', 1, 5000); 
   } catch (e) {
-    console.error("Image generation hit quota limits for prompt:", prompt);
+    console.error("Image generation skipped due to quota limits.");
     return undefined;
   }
 };
