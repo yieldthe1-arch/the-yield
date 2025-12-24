@@ -207,19 +207,22 @@ export default function App() {
 
     try {
       const data = await generateNewsletter(activeContent, includeMarket, themeId);
-      const sectionsWithImages = await Promise.all(data.sections.map(async (s) => ({
-        ...s,
-        imageUrl: await generateImage(s.imagePrompt)
-      })));
+      // Sequentially generate images for each section to ensure accuracy
+      const sectionsWithImages = await Promise.all(data.sections.map(async (s) => {
+        const url = await generateImage(s.imagePrompt);
+        return { ...s, imageUrl: url };
+      }));
       setNewsletter({ ...data, sections: sectionsWithImages });
     } catch (err: any) {
-      setError("Generation failed. Please try again.");
+      console.error(err);
+      setError("Generation failed. Please check your API key.");
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSendToSubscribers = async () => {
+    if (!newsletter) return;
     if (subscribers.length === 0) {
       setError("You have 0 subscribers to send to.");
       return;
@@ -234,18 +237,55 @@ export default function App() {
     setSendSuccess(false);
     
     try {
-      // Build a robust HTML string for the email
-      const htmlContent = newsletter?.sections.map(s => {
-        const imgTag = s.imageUrl ? `<img src="${s.imageUrl}" alt="${s.title}" style="width:100%; max-width:600px; border-radius:15px; margin-bottom:15px;" />` : '';
-        const bodyText = s.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>');
+      const htmlSections = newsletter.sections.map(s => {
+        const imgTag = s.imageUrl ? `<div style="text-align:center; margin: 30px 0;"><img src="${s.imageUrl}" alt="${s.title}" style="width:100%; max-width:540px; border-radius:20px; display:block; margin: 0 auto; border: 1px solid #f1f5f9;" /></div>` : '';
+        const bodyText = s.content.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#2D5A27; font-weight: 800;">$1</strong>').replace(/\n/g, '<br/>');
         return `
-          <div style="margin-bottom:40px; font-family: sans-serif;">
-            <h2 style="color:#2D5A27; text-transform:uppercase; font-size:16px;">${s.title}</h2>
+          <div style="margin-bottom:60px; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+            <div style="text-align:center; margin-bottom: 20px;">
+              <span style="background-color: #f0fdf4; color: #2D5A27; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 3px; padding: 6px 16px; border-radius: 50px; border: 1.5px solid #dcfce7; display: inline-block;">${s.title}</span>
+            </div>
             ${imgTag}
-            <p style="font-size:16px; line-height:1.6; color:#333;">${bodyText}</p>
+            <div style="font-size:16px; line-height:1.8; color:#334155; margin-top:20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">${bodyText}</div>
           </div>
         `;
       }).join('');
+
+      // The Yield Branded Table Wrapper (For center-aligned narrow layout in emails)
+      const masterEmailHtml = `
+        <div style="background-color: #f8fafc; padding: 60px 0; font-family: 'Inter', system-ui, sans-serif;">
+          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 40px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+            <tr>
+              <td style="padding: 60px 40px 30px 40px; text-align: center;">
+                <div style="background-color: #2D5A27; width: 64px; height: 64px; margin: 0 auto; border-radius: 20px; line-height: 64px; text-align: center;">
+                   <img src="https://img.icons8.com/ios-filled/100/D4AF37/sprout.png" style="width: 32px; height: 32px; vertical-align: middle;" />
+                </div>
+                <h1 style="font-family: 'Georgia', serif; font-style: italic; font-weight: 900; font-size: 48px; color: #2D5A27; margin: 24px 0 8px 0; letter-spacing: -1.5px;">The Yield</h1>
+                <p style="text-transform: uppercase; letter-spacing: 6px; font-size: 10px; font-weight: 800; color: #94a3b8; margin: 0 0 40px 0;">${newsletter.generatedAt}</p>
+                <p style="font-style: italic; color: #64748b; font-size: 20px; line-height: 1.6; max-width: 440px; margin: 0 auto; font-family: 'Georgia', serif;">"${newsletter.header.vibeCheck}"</p>
+                <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 45px 0;" />
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 45px;">
+                ${htmlSections}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 50px 40px; background-color: #f8fafc; text-align: center; border-top: 1px solid #f1f5f9;">
+                <p style="font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 4px; color: #cbd5e1; margin-bottom: 12px;">AGRIANTS PRIMARY AGRICULTURAL COOPERATIVE</p>
+                <p style="font-size: 13px; font-weight: 600; color: #64748b; margin: 0;">Business insights for the modern field.</p>
+                <div style="margin-top: 25px; font-size: 11px; color: #94a3b8;">
+                   Visit the <a href="https://agriants.co.za" style="color: #2D5A27; text-decoration: underline; font-weight: 800;">AGRIANTS Official Shop</a>.
+                </div>
+              </td>
+            </tr>
+          </table>
+          <div style="text-align: center; margin-top: 30px;">
+             <p style="font-size: 11px; color: #94a3b8;">© ${new Date().getFullYear()} AGRIANTS Cooperative. South Africa.</p>
+          </div>
+        </div>
+      `;
 
       for (const sub of subscribers) {
         const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
@@ -258,9 +298,8 @@ export default function App() {
             template_params: {
               to_name: sub.name,
               to_email: sub.email,
-              vibe_check: newsletter?.header.vibeCheck,
-              date: newsletter?.generatedAt,
-              content: htmlContent
+              date: newsletter.generatedAt,
+              content: masterEmailHtml // Injecting full themed HTML
             }
           })
         });
@@ -274,7 +313,7 @@ export default function App() {
       setTimeout(() => setSendSuccess(false), 3000);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Distribution error. Check console.");
+      setError(err.message || "Distribution error. Check settings.");
     } finally {
       setIsSending(false);
     }
@@ -344,7 +383,7 @@ export default function App() {
               {settingsTab === 'config' ? (
                 <div className="space-y-6 overflow-y-auto">
                   <div className="p-4 bg-amber-50 rounded-2xl text-[11px] font-bold text-amber-900 leading-relaxed">
-                    Configure your distribution layer using EmailJS. Visit emailjs.com to retrieve your credentials.
+                    Configure distribution via EmailJS. Add a "content" variable in your template to receive the HTML draft.
                   </div>
                   <div className="space-y-4">
                     <div className="space-y-1">
