@@ -4,7 +4,7 @@ import {
   Sprout, Copy, TrendingUp, Loader2,
   AlertCircle, Plus, Trash2, RefreshCw,
   FileText, Youtube, Zap, X, Settings, LogOut, Printer, Layers, Send, CheckCircle2,
-  Users, UserPlus, Mail, Globe, Calendar, Image as ImageIcon, Music, Film, Upload
+  Users, UserPlus, Mail, Globe, Calendar, Image as ImageIcon, Music, Film, Upload, Key, Clock
 } from 'lucide-react';
 import { generateNewsletter, fetchMarketTrends, generateImage } from './services/geminiService';
 import { NewsletterData, CurationItem, CommodityPrice, EmailConfig, Subscriber, UN_DAYS } from './types';
@@ -42,6 +42,7 @@ export default function App() {
   const [sendSuccess, setSendSuccess] = useState(false);
   const [isFetchingMarket, setIsFetchingMarket] = useState(false);
   const [marketTrends, setMarketTrends] = useState<CommodityPrice[]>([]);
+  const [marketAsOf, setMarketAsOf] = useState<string>('');
   const [newsletter, setNewsletter] = useState<NewsletterData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [marketError, setMarketError] = useState<string | null>(null);
@@ -115,7 +116,8 @@ export default function App() {
     setMarketError(null);
     try { 
       const data = await fetchMarketTrends(); 
-      setMarketTrends(data);
+      setMarketTrends(data.prices);
+      setMarketAsOf(data.asOf);
     } catch (err: any) { 
       setMarketError("Market Sync Limited.");
     } finally { 
@@ -207,6 +209,7 @@ export default function App() {
 
     try {
       const data = await generateNewsletter(activeContent, includeMarket, themeId);
+      // Using Flash Image model for images
       const sectionsWithImages = await Promise.all(data.sections.map(async (s) => {
         const url = await generateImage(s.imagePrompt);
         return { ...s, imageUrl: url };
@@ -214,7 +217,7 @@ export default function App() {
       setNewsletter({ ...data, sections: sectionsWithImages });
     } catch (err: any) {
       console.error(err);
-      setError("Generation failed. Please try again.");
+      setError("Generation failed. Please check your connection.");
     } finally {
       setIsLoading(false);
     }
@@ -237,50 +240,52 @@ export default function App() {
     
     try {
       const htmlSections = newsletter.sections.map(s => {
-        const imgTag = s.imageUrl ? `<div style="text-align:center; margin: 30px 0;"><img src="${s.imageUrl}" alt="${s.title}" style="width:100%; max-width:540px; border-radius:24px; display:block; margin: 0 auto; border: 1px solid #f1f5f9;" /></div>` : '';
+        const imgTag = s.imageUrl ? `<div style="text-align:center; margin: 35px 0;"><img src="${s.imageUrl}" alt="${s.title}" style="width:100%; max-width:540px; border-radius:24px; display:block; margin: 0 auto; border: 1px solid #f1f5f9; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);" /></div>` : '';
         const bodyText = s.content.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#2D5A27; font-weight: 800;">$1</strong>').replace(/\n/g, '<br/>');
         return `
-          <div style="margin-bottom:60px; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+          <div style="margin-bottom:65px; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
             <div style="text-align:center; margin-bottom: 25px;">
-              <span style="background-color: #f0fdf4; color: #2D5A27; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 3px; padding: 6px 16px; border-radius: 50px; border: 1.5px solid #dcfce7; display: inline-block;">${s.title}</span>
+              <span style="background-color: #f0fdf4; color: #2D5A27; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 3.5px; padding: 7px 18px; border-radius: 50px; border: 1.5px solid #dcfce7; display: inline-block;">${s.title}</span>
             </div>
             ${imgTag}
-            <div style="font-size:16px; line-height:1.8; color:#334155; margin-top:20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">${bodyText}</div>
+            <div style="font-size:16px; line-height:1.85; color:#334155; margin-top:25px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">${bodyText}</div>
           </div>
         `;
       }).join('');
 
       const masterEmailHtml = `
-        <div style="background-color: #f1f5f9; padding: 60px 0; font-family: 'Inter', system-ui, sans-serif;">
-          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 40px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+        <div style="background-color: #f1f5f9; padding: 80px 0; font-family: 'Inter', system-ui, sans-serif;">
+          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 48px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);">
             <tr>
-              <td style="padding: 60px 40px 30px 40px; text-align: center;">
-                <div style="background-color: #2D5A27; width: 64px; height: 64px; margin: 0 auto; border-radius: 20px; line-height: 64px; text-align: center;">
-                   <img src="https://img.icons8.com/ios-filled/100/D4AF37/sprout.png" style="width: 32px; height: 32px; vertical-align: middle;" />
+              <td style="padding: 70px 40px 30px 40px; text-align: center;">
+                <div style="background-color: #2D5A27; width: 72px; height: 72px; margin: 0 auto; border-radius: 24px; line-height: 72px; text-align: center;">
+                   <img src="https://img.icons8.com/ios-filled/100/D4AF37/sprout.png" style="width: 36px; height: 36px; vertical-align: middle;" />
                 </div>
-                <h1 style="font-family: 'Georgia', serif; font-style: italic; font-weight: 900; font-size: 48px; color: #2D5A27; margin: 24px 0 8px 0; letter-spacing: -1.5px;">The Yield</h1>
-                <p style="text-transform: uppercase; letter-spacing: 6px; font-size: 10px; font-weight: 800; color: #94a3b8; margin: 0 0 40px 0;">${newsletter.generatedAt}</p>
-                <p style="font-style: italic; color: #64748b; font-size: 19px; line-height: 1.6; max-width: 440px; margin: 0 auto; font-family: 'Georgia', serif;">"${newsletter.header.vibeCheck}"</p>
-                <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 45px 0;" />
+                <h1 style="font-family: 'Georgia', serif; font-style: italic; font-weight: 900; font-size: 52px; color: #2D5A27; margin: 28px 0 10px 0; letter-spacing: -2px;">The Yield</h1>
+                <p style="text-transform: uppercase; letter-spacing: 7px; font-size: 10px; font-weight: 800; color: #94a3b8; margin: 0 0 45px 0;">${newsletter.generatedAt}</p>
+                <div style="max-width: 480px; margin: 0 auto;">
+                   <p style="font-style: italic; color: #64748b; font-size: 20px; line-height: 1.6; margin: 0; font-family: 'Georgia', serif;">"${newsletter.header.vibeCheck}"</p>
+                </div>
+                <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 50px 0;" />
               </td>
             </tr>
             <tr>
-              <td style="padding: 0 45px;">
+              <td style="padding: 0 50px;">
                 ${htmlSections}
               </td>
             </tr>
             <tr>
-              <td style="padding: 50px 40px; background-color: #f8fafc; text-align: center; border-top: 1px solid #f1f5f9;">
-                <p style="font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 4px; color: #cbd5e1; margin-bottom: 12px;">AGRIANTS PRIMARY AGRICULTURAL COOPERATIVE</p>
-                <p style="font-size: 13px; font-weight: 600; color: #64748b; margin: 0;">Business insights for the modern producer.</p>
-                <div style="margin-top: 25px; font-size: 11px; color: #94a3b8;">
-                   Visit the <a href="https://agriants.co.za" style="color: #2D5A27; text-decoration: underline; font-weight: 800;">AGRIANTS Shop</a> for artisanal honey.
+              <td style="padding: 60px 50px; background-color: #f8fafc; text-align: center; border-top: 1px solid #f1f5f9;">
+                <p style="font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 5px; color: #cbd5e1; margin-bottom: 15px;">AGRIANTS PRIMARY AGRICULTURAL COOPERATIVE</p>
+                <p style="font-size: 14px; font-weight: 600; color: #64748b; margin: 0;">Sustainable insights for the future of food.</p>
+                <div style="margin-top: 30px; font-size: 11px; color: #94a3b8;">
+                   Visit our <a href="https://agriants.co.za" style="color: #2D5A27; text-decoration: underline; font-weight: 800;">Cooperative Shop</a>.
                 </div>
               </td>
             </tr>
           </table>
-          <div style="text-align: center; margin-top: 30px;">
-             <p style="font-size: 11px; color: #94a3b8;">© ${new Date().getFullYear()} AGRIANTS Cooperative. South Africa.</p>
+          <div style="text-align: center; margin-top: 40px;">
+             <p style="font-size: 12px; color: #94a3b8;">© ${new Date().getFullYear()} AGRIANTS Cooperative Limited. South Africa.</p>
           </div>
         </div>
       `;
@@ -381,7 +386,7 @@ export default function App() {
               {settingsTab === 'config' ? (
                 <div className="space-y-6 overflow-y-auto">
                   <div className="p-4 bg-amber-50 rounded-2xl text-[11px] font-bold text-amber-900 leading-relaxed">
-                    Configure distribution via EmailJS. Add a "content" variable in your template to receive the HTML draft.
+                    Configure distribution via EmailJS. 
                   </div>
                   <div className="space-y-4">
                     <div className="space-y-1">
@@ -501,7 +506,7 @@ export default function App() {
           )}
 
           <div className="bg-white rounded-[2rem] p-8 border border-neutral-200 shadow-sm">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-2">
               <h3 className="text-xs font-black uppercase tracking-widest text-ag-green flex items-center gap-2">
                 <Globe className="w-4 h-4 text-ag-gold" /> Market Dashboard
               </h3>
@@ -509,6 +514,12 @@ export default function App() {
                 <RefreshCw className={`w-4 h-4 ${isFetchingMarket ? 'animate-spin' : ''}`} />
               </button>
             </div>
+            
+            {marketAsOf && (
+              <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                <Clock className="w-3 h-3" /> As Of: {marketAsOf}
+              </p>
+            )}
             
             <div className="grid grid-cols-2 gap-3">
               {isFetchingMarket && marketTrends.length === 0 ? (
@@ -570,7 +581,7 @@ export default function App() {
 
                 <div className="space-y-24">
                   {newsletter.sections.map(section => (
-                    <div key={section.id} className="space-y-8">
+                    <div key={section.id} className="space-y-10">
                       <div className="flex items-center gap-4">
                         <div className="h-px bg-neutral-100 flex-1" />
                         <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-ag-green bg-green-50 px-5 py-2 rounded-full border border-green-100">{section.title}</h3>
@@ -579,8 +590,8 @@ export default function App() {
                       
                       {section.imageUrl && (
                         <div className="group relative">
-                          <img src={section.imageUrl} alt="" className="w-full h-72 object-cover rounded-[2rem] shadow-sm border border-neutral-100 transition-transform duration-500 group-hover:scale-[1.01]" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-[2rem] pointer-events-none" />
+                          <img src={section.imageUrl} alt="" className="w-full h-80 object-cover rounded-[2.5rem] shadow-lg border border-neutral-100 transition-transform duration-500 group-hover:scale-[1.01]" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-[2.5rem] pointer-events-none" />
                         </div>
                       )}
                       
@@ -588,6 +599,31 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+
+                {newsletter.marketDate && (
+                  <div className="mt-16 text-center">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Market Data Reporting Date: {newsletter.marketDate}</p>
+                  </div>
+                )}
+
+                {newsletter.sources && newsletter.sources.length > 0 && (
+                  <div className="mt-24 p-8 bg-neutral-50 rounded-[2.5rem] border border-neutral-100 shadow-inner">
+                    <h4 className="text-[10px] font-black uppercase tracking-[0.5em] text-neutral-400 mb-6 text-center">Reference Grounding</h4>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      {newsletter.sources.map((src, i) => (
+                        <a 
+                          key={i} 
+                          href={src.uri} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-[10px] font-bold text-ag-green hover:text-ag-gold bg-white px-5 py-2.5 rounded-full border border-neutral-100 shadow-sm transition-all hover:-translate-y-0.5"
+                        >
+                          {src.title}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-24 pt-10 border-t border-neutral-100 flex flex-wrap justify-center gap-4 no-print pb-20">
                    <button onClick={handleSendToSubscribers} disabled={isSending} className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-ag-green text-white text-xs font-black shadow-xl shadow-ag-green/20 disabled:opacity-50 transition-all hover:scale-105 active:scale-95">
