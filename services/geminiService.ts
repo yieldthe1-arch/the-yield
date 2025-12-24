@@ -8,6 +8,16 @@ declare var process: {
   };
 };
 
+/**
+ * Utility to strip markdown backticks and other common AI fluff from JSON strings.
+ */
+const cleanJSON = (text: string): string => {
+  return text
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim();
+};
+
 const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
 Task: Produce "The Yield," a high-value, witty, and educational newsletter.
@@ -36,21 +46,20 @@ export const generateNewsletter = async (
 ): Promise<NewsletterData> => {
   if (!process.env.API_KEY) throw new Error("API_KEY not found in environment.");
   
-  // Use named parameter for initialization
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const parts: any[] = [];
   
-  // Consolidate all curated pieces into a single source context
+  // Consolidate curated pieces
   const sourceContext = curations.map(c => {
     if (c.type === 'text') return `[TEXT SNIPPET]: ${c.text}`;
     if (c.type === 'youtube') return `[VIDEO SOURCE]: ${c.url}`;
     if (c.type === 'image') return `[IMAGE ATTACHMENT ANALYZED]`;
     return '';
-  }).join('\n\n');
+  }).filter(Boolean).join('\n\n');
 
-  parts.push({ text: `RAW DATA TO PROCESS:\n${sourceContext}` });
+  parts.push({ text: `RAW DATA TO PROCESS:\n${sourceContext || "No context provided, generate general high-value agricultural news."}` });
 
-  // Add binary data if available
+  // Add binary data
   curations.forEach(item => {
     if (item.data && item.mimeType) {
       parts.push({
@@ -66,7 +75,8 @@ export const generateNewsletter = async (
 
   const prompt = `Write today's edition of "The Yield". 
   ${themeNote}
-  ${includeMarketData ? "IMPORTANT: Use Google Search to find today's (latest) SAFEX White Maize and Raw Honey prices in South Africa (ZAR). Return these exact figures in 'The Wallet' section." : "Use realistic South African agricultural benchmarks for White Maize and Raw Honey."}`;
+  ${includeMarketData ? "IMPORTANT: Use Google Search to find today's (latest) SAFEX White Maize and Raw Honey prices in South Africa (ZAR). Return these exact figures in 'The Wallet' section." : "Use realistic South African agricultural benchmarks for White Maize and Raw Honey."}
+  OUTPUT RULES: Return ONLY a valid JSON object. Do not include markdown code blocks.`;
   
   parts.push({ text: prompt });
 
@@ -78,6 +88,7 @@ export const generateNewsletter = async (
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         tools: includeMarketData ? [{ googleSearch: {} }] : [],
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -106,23 +117,25 @@ export const generateNewsletter = async (
       },
     });
 
-    // Use .text property directly
     const responseText = response.text;
-    if (!responseText) throw new Error("API returned empty text.");
+    if (!responseText) {
+      const finishReason = response.candidates?.[0]?.finishReason;
+      throw new Error(`Model returned empty text. Finish Reason: ${finishReason || 'Unknown'}`);
+    }
     
     let result;
     try {
-      result = JSON.parse(responseText.trim());
+      result = JSON.parse(cleanJSON(responseText));
     } catch (parseErr) {
-      console.error("JSON Parse Error:", responseText);
-      throw new Error("Failed to parse newsletter structure.");
+      console.error("JSON Parse Error. Cleaned text:", cleanJSON(responseText));
+      throw new Error("The newsletter harvest was corrupted during drafting. Please try again.");
     }
 
     const sources: { title: string; uri: string }[] = [];
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     
-    if (groundingChunks) {
-      (groundingChunks as any[]).forEach(chunk => {
+    if (Array.isArray(groundingChunks)) {
+      groundingChunks.forEach((chunk: any) => {
         if (chunk.web) {
           sources.push({ title: chunk.web.title, uri: chunk.web.uri });
         }
@@ -147,10 +160,11 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, and the latest Raw Honey prices in South Africa. Return as JSON: { prices: [{name, price, unit, category, trend: number[]}], asOf: string }. Provide at least 2 numbers in the 'trend' array for each item to show a clear percentage change." }] }],
+      contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, and the latest Raw Honey prices in South Africa. Return as JSON: { prices: [{name, price, unit, category, trend: number[]}], asOf: string }. Provide at least 2 numbers in the 'trend' array for each item." }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -172,9 +186,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       }
     });
-    const parsed = JSON.parse(response.text || "{}");
-    // Ensure we have grain indices as well to match Morning Brew variety
-    return parsed;
+    return JSON.parse(cleanJSON(response.text || "{}"));
   } catch (e) {
     console.warn("Market fetch failed, using fallbacks.");
     return {
@@ -198,7 +210,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
-        parts: [{ text: `${prompt}. High-resolution editorial photography. No text.` }]
+        parts: [{ text: `${prompt}. High-resolution editorial lifestyle photography, morning light, crisp focus. No text.` }]
       },
       config: { 
         imageConfig: { aspectRatio: "16:9" } 
@@ -207,7 +219,6 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
     
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
-        // Iterate and find the inlineData part
         if (part.inlineData) {
           return `data:image/png;base64,${part.inlineData.data}`;
         }
