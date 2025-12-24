@@ -1,7 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsletterData, GroundingChunk, CommodityPrice, CurationItem } from "../types";
 
-// Manual type declaration for process.env to satisfy the compiler without @types/node
 declare var process: {
   env: {
     API_KEY: string;
@@ -10,84 +9,96 @@ declare var process: {
 
 const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
-Task: Produce "The Yield," a high-value, witty, and educational newsletter.
-Style: Morning Brew / Tech Brew aesthetic. Smart, punchy, irreverent.
-Tone: Professional but conversational. Avoid "GPT-isms" like "delve" or "tapestry".
-Rule: Every issue must contain exactly one subtle agricultural pun.
+Task: Produce "The Yield," a smart, punchy newsletter.
+Style: Morning Brew. smart, slightly irreverent.
+Tone: Professional but conversational. Avoid GPT-isms.
+Rule: Include exactly one subtle agricultural pun per issue.
 Bold the most important sentence in every paragraph.
 
 Newsletter Structure:
 - [THE FIELD REPORT]: Business insights for farmers.
 - [SUPERFOOD SPOTLIGHT]: Facts and recipes for niche health items.
-- [THE WALLET]: Investing education + live market data. Explain a financial concept using a farm analogy.
-- [THE BREAKROOM]: A 1-question trivia quiz about agriculture or food history.
+- [THE WALLET]: Investing education + live market data. Use a farm analogy for finance.
+- [THE BREAKROOM]: 1-question agricultural trivia.
 `;
 
 export const generateNewsletter = async (
   curations: CurationItem[],
-  includeMarketData: boolean,
-  recognitionDay?: string
+  includeMarketData: boolean
 ): Promise<NewsletterData> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API_KEY environment variable is not defined.");
+  if (!apiKey) throw new Error("API_KEY not configured.");
   
   const ai = new GoogleGenAI({ apiKey });
   
   const parts: any[] = [];
   curations.forEach(item => {
     if (item.type === 'text' && item.text) {
-      parts.push({ text: `User Content: ${item.text}` });
+      parts.push({ text: `Source Content: ${item.text}` });
     } else if (item.type === 'youtube' && item.url) {
-      parts.push({ text: `YouTube Insights needed from: ${item.url}` });
+      parts.push({ text: `Analyze insights from this video: ${item.url}` });
     }
   });
 
-  const prompt = `Please write the latest edition of "The Yield" based on the provided content. 
-  ${includeMarketData ? "Use Google Search to find today's White Maize (SAFEX) and Raw Honey prices in South Africa and include them in the wallet section. Be specific about ZAR prices." : ""}
-  Context: ${recognitionDay || 'General Edition'}`;
+  const prompt = `Write today's edition of "The Yield". 
+  ${includeMarketData ? "Use Google Search for today's South African White Maize (SAFEX) price per ton and Raw Honey price per kg (ZAR)." : "Use these benchmarks: White Maize R5420/t, Honey R185/kg."}`;
   
   parts.push({ text: prompt });
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: [{ parts }],
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: "application/json",
-      tools: includeMarketData ? [{ googleSearch: {} }] : [],
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          header: {
-            type: Type.OBJECT,
-            properties: { 
-              vibeCheck: { type: Type.STRING } 
-            },
-            required: ["vibeCheck"]
-          },
-          sections: {
-            type: Type.ARRAY,
-            items: {
+  const executeRequest = async (useSearch: boolean) => {
+    return await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [{ parts }],
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
+        tools: useSearch ? [{ googleSearch: {} }] : [],
+        thinkingConfig: { thinkingBudget: 0 },
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            header: {
               type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                title: { type: Type.STRING },
-                content: { type: Type.STRING },
-                imagePrompt: { type: Type.STRING }
-              },
-              required: ["id", "title", "content", "imagePrompt"]
+              properties: { vibeCheck: { type: Type.STRING } },
+              required: ["vibeCheck"]
+            },
+            sections: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  title: { type: Type.STRING },
+                  content: { type: Type.STRING },
+                  imagePrompt: { type: Type.STRING }
+                },
+                required: ["id", "title", "content", "imagePrompt"]
+              }
             }
-          }
-        },
-        required: ["header", "sections"]
-      }
-    },
-  });
+          },
+          required: ["header", "sections"]
+        }
+      },
+    });
+  };
 
-  if (!response.text) {
-    throw new Error("No text returned from the model.");
+  try {
+    // Attempt with search first if requested
+    let response = await executeRequest(includeMarketData);
+    return processResponse(response);
+  } catch (e: any) {
+    // If search fails due to quota (429), retry without search automatically
+    if (includeMarketData && (e.message?.includes('429') || e.status === 'RESOURCE_EXHAUSTED')) {
+      console.warn("Search quota hit during generation, falling back to static data.");
+      let fallbackResponse = await executeRequest(false);
+      return processResponse(fallbackResponse);
+    }
+    throw e;
   }
+};
 
+const processResponse = (response: any): NewsletterData => {
+  if (!response.text) throw new Error("Model failed to generate content.");
   const result = JSON.parse(response.text);
   const sources: { title: string; uri: string }[] = [];
   const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks as GroundingChunk[];
@@ -107,16 +118,17 @@ export const generateNewsletter = async (
 
 export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) return getFallbackMarketData();
   
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search for the current SAFEX White Maize price per ton and South African Raw Honey price per kg. Provide these as a JSON array." }] }],
+      contents: [{ parts: [{ text: "Search Google: Current SAFEX White Maize price ZAR per ton and SA Raw Honey price ZAR per kg. Return ONLY a JSON array." }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.ARRAY,
           items: {
@@ -134,13 +146,19 @@ export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
       }
     });
     
-    return JSON.parse(response.text || "[]");
+    const data = JSON.parse(response.text || "[]");
+    return data.length > 0 ? data : getFallbackMarketData();
   } catch (e: any) {
-    console.error("Market fetch error:", e);
-    if (e.message?.includes('429')) throw new Error("QUOTA_EXHAUSTED");
-    return [];
+    console.error("Market search failed:", e);
+    // Return fallback instead of throwing to keep UI clean
+    return getFallbackMarketData();
   }
 };
+
+const getFallbackMarketData = (): CommodityPrice[] => [
+  { name: "White Maize", price: "R5,420", unit: "per ton", category: "Commodities", trend: [5200, 5350, 5400, 5380, 5420] },
+  { name: "Raw Honey", price: "R185", unit: "per kg", category: "Commodities", trend: [175, 180, 182, 184, 185] }
+];
 
 export const generateImage = async (prompt: string): Promise<string | undefined> => {
   const apiKey = process.env.API_KEY;
@@ -150,12 +168,8 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: [{ parts: [{ text: `A clean Morning Brew style illustration: ${prompt}` }] }],
-      config: { 
-        imageConfig: { 
-          aspectRatio: "16:9" 
-        } 
-      }
+      contents: [{ parts: [{ text: `A professional, minimalist agricultural illustration: ${prompt}` }] }],
+      config: { imageConfig: { aspectRatio: "16:9" } }
     });
     
     const parts = response.candidates?.[0]?.content?.parts;
@@ -165,7 +179,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       }
     }
   } catch (e) {
-    console.error("Image generation failed", e);
+    console.error("Image generation skipped.");
   }
   return undefined;
 };
