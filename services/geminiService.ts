@@ -21,7 +21,7 @@ Newsletter Structure:
 - [THE FIELD REPORT]: Business insights for farmers.
 - [SUPERFOOD SPOTLIGHT]: Facts and recipes for niche health items.
 - [THE WALLET]: Investing education + live market data. Use a farm analogy for finance.
-- [THE BREAKROOM]: A 1-question agricultural trivia.
+- [THE BREAKROOM]: 1-question agricultural trivia.
 `;
 
 export const generateNewsletter = async (
@@ -36,7 +36,6 @@ export const generateNewsletter = async (
   
   const parts: any[] = [];
   
-  // Handle multimedia and text inputs
   curations.forEach(item => {
     if (item.type === 'text' && item.text) {
       parts.push({ text: `Source Context: ${item.text}` });
@@ -191,9 +190,15 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       }
     });
     
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
+    const candidates = response.candidates;
+    if (candidates && candidates.length > 0) {
+      const parts = candidates[0].content?.parts;
+      if (parts) {
+        for (const part of parts) {
+          if (part.inlineData) {
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
       }
     }
   } catch (e) {
