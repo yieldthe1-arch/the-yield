@@ -10,19 +10,13 @@ declare var process: {
 
 /**
  * Global state to enforce a minimum gap between ANY API calls.
- * Lowered to 2s to minimize perceived lag while still offering protection.
+ * Optimized to 1.5s for a snappier feel while maintaining quota safety.
  */
 let lastRequestTime = 0;
-const MIN_REQUEST_GAP = 2000; 
+const MIN_REQUEST_GAP = 1500; 
 
-/**
- * Utility to wait for a specific duration.
- */
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Ensures we don't hit the API too fast globally.
- */
 async function throttle() {
   const now = Date.now();
   const timeSinceLast = now - lastRequestTime;
@@ -34,9 +28,9 @@ async function throttle() {
 }
 
 /**
- * A robust wrapper to handle API calls with exponential backoff.
+ * Robust wrapper for API calls with specialized handling for image vs text retries.
  */
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 4, delay = 6000): Promise<T> {
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 3000): Promise<T> {
   await throttle();
   
   try {
@@ -51,9 +45,9 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 4, delay = 6000)
       errorString.includes('resource_exhausted');
 
     if (isQuotaError && retries > 0) {
-      console.warn(`[Gemini API] Quota Hit. Backing off for ${delay}ms... (${retries} retries left)`);
+      console.warn(`[Gemini API] Quota limit. Retrying in ${delay}ms...`);
       await sleep(delay);
-      return callWithRetry(fn, retries - 1, delay * 1.5);
+      return callWithRetry(fn, retries - 1, delay * 2);
     }
     throw err;
   }
@@ -70,7 +64,7 @@ const SYSTEM_INSTRUCTION = `
 Role: Lead Editor and Market Analyst for AGRIANTS Primary Agricultural Cooperative Limited.
 Task: Produce "The Yield," a high-value, witty, and educational newsletter.
 Style: Morning Brew style (smart, punchy, slightly irreverent).
-Tone: Professional but conversational. NO AI cliches.
+Tone: Professional but conversational. NO AI cliches like "delve" or "tapestry".
 Rule: Include exactly one subtle agricultural pun per issue.
 Bold the most important sentence in every paragraph.
 
@@ -80,7 +74,7 @@ Structure:
 - [THE WALLET]: Investing education + live market data analogies.
 - [THE BREAKROOM]: 1-question agricultural trivia.
 
-Images: Provide unique 'imagePrompt' for each section. No text in images.
+Images: Provide unique 'imagePrompt' for each section. High-end editorial photography style.
 `;
 
 export const generateNewsletter = async (
@@ -99,11 +93,11 @@ export const generateNewsletter = async (
     return '';
   }).filter(Boolean).join('\n\n');
 
-  parts.push({ text: `DATA:\n${sourceContext || "General agricultural news."}` });
+  parts.push({ text: `DATA:\n${sourceContext || "Latest agricultural business news."}` });
 
-  const prompt = `Create "The Yield" Edition. ${themeId !== 'standard' ? `Theme: ${themeId}` : ""}
-  ${includeMarketData ? "URGENT: Search latest SAFEX White Maize and Raw Honey prices (ZAR) in South Africa." : ""}
-  Return ONLY JSON. No markdown.`;
+  const prompt = `Generate "The Yield" Edition. ${themeId !== 'standard' ? `Theme: ${themeId}` : ""}
+  ${includeMarketData ? "IMPORTANT: Retrieve current SAFEX White Maize and Raw Honey prices (ZAR) in South Africa." : ""}
+  Output strictly as JSON.`;
   
   parts.push({ text: prompt });
 
@@ -114,8 +108,7 @@ export const generateNewsletter = async (
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        // SPEED OPTIMIZATION: Disable thinking to eliminate 5-10s of reasoning latency
-        thinkingConfig: { thinkingBudget: 0 },
+        thinkingConfig: { thinkingBudget: 0 }, // Instant reasoning
         tools: includeMarketData ? [{ googleSearch: {} }] : [],
         responseSchema: {
           type: Type.OBJECT,
@@ -198,7 +191,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
         }
       });
       return JSON.parse(cleanJSON(response.text || "{}"));
-    }, 1, 4000); 
+    }, 1, 2000); 
   } catch (e) {
     return {
       prices: [
@@ -214,19 +207,21 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   if (!process.env.API_KEY) return undefined;
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
+    // Images are rate-limited separately; we use a longer delay and fewer retries
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `${prompt}. High-resolution editorial lifestyle photography, no text.` }]
+          parts: [{ text: `Editorial agricultural photography of ${prompt}. Clean, sunlight, cinematic lighting, no text, high resolution.` }]
         },
         config: { imageConfig: { aspectRatio: "16:9" } }
       });
       
       const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : undefined;
-    }, 1, 10000); 
+    }, 1, 5000); 
   } catch (e) {
+    console.error("Image generation failed:", e);
     return undefined;
   }
 };
