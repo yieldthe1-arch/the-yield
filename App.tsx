@@ -4,7 +4,8 @@ import {
   Sprout, Copy, TrendingUp, Loader2, AlertCircle, Plus, Trash2, RefreshCw,
   FileText, Youtube, Zap, X, Settings, LogOut, Printer, Layers, Send, CheckCircle2,
   Mail, Globe, Calendar, Image as ImageIcon, Music, Film, Upload, Clock, Download,
-  Key, ExternalLink, Heart, Share2, Megaphone, ArrowUp, ArrowDown, Minus
+  // Fix: Removed duplicate lowercase 'zapOff' import
+  Key, ExternalLink, Heart, Share2, Megaphone, ArrowUp, ArrowDown, Minus, ZapOff
 } from 'lucide-react';
 import { generateNewsletter, fetchMarketTrends, generateImage } from './services/geminiService';
 import { NewsletterData, CurationItem, CommodityPrice, EmailConfig, Subscriber, UN_DAYS } from './types';
@@ -62,8 +63,10 @@ export default function App() {
   const [ytUrl, setYtUrl] = useState('');
   const [curations, setCurations] = useState<CurationItem[]>([]);
   const [includeMarket, setIncludeMarket] = useState(true);
+  const [generateImages, setGenerateImages] = useState(true);
   const [themeId, setThemeId] = useState('standard');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState('');
   const [marketTrends, setMarketTrends] = useState<CommodityPrice[]>([]);
   const [marketAsOf, setMarketAsOf] = useState<string>('');
   const [newsletter, setNewsletter] = useState<NewsletterData | null>(null);
@@ -95,8 +98,6 @@ export default function App() {
   }, [subscribers, emailConfig]);
 
   useEffect(() => {
-    // Only load market trends if authenticated and not already loaded.
-    // Also add a small delay to avoid clashing with other auth-triggered logic.
     if (isAuthenticated && marketTrends.length === 0) {
       const timer = setTimeout(() => loadMarketTrends(), 1500);
       return () => clearTimeout(timer);
@@ -156,40 +157,48 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setNewsletter(null);
+    setLoadingStep('Drafting the Yield...');
 
     try {
-      // Step 1: Generate text (grounding included here)
+      // Step 1: Generate text
       const data = await generateNewsletter(allContent, includeMarket, themeId);
+      
       const sectionsWithImages = [];
       
-      // Step 2: Generate images with a significant gap to satisfy RPM limits (15 RPM max)
-      for (const section of data.sections) {
-        try {
-          // 8 second gap between image requests to be extremely safe
-          await new Promise(r => setTimeout(r, 8000));
-          
-          const url = await generateImage(section.imagePrompt);
-          sectionsWithImages.push({ ...section, imageUrl: url });
-        } catch (imgErr) {
-          console.warn("Image generation failed for section:", section.title, imgErr);
-          sectionsWithImages.push(section);
+      // Step 2: Generate images (Only if enabled)
+      if (generateImages) {
+        setLoadingStep('Capturing Visuals (Images take longer to respect quota)...');
+        for (const section of data.sections) {
+          try {
+            // Gap between image requests
+            await new Promise(r => setTimeout(r, 9000));
+            setLoadingStep(`Generating visual for: ${section.title}...`);
+            const url = await generateImage(section.imagePrompt);
+            sectionsWithImages.push({ ...section, imageUrl: url });
+          } catch (imgErr) {
+            console.warn("Image skipped due to limit");
+            sectionsWithImages.push(section);
+          }
         }
+      } else {
+        sectionsWithImages.push(...data.sections);
       }
       
       setNewsletter({ ...data, sections: sectionsWithImages });
       setCurations([]);
       setInputText('');
     } catch (err: any) {
-      console.error("Newsletter generation failed permanently:", err);
+      console.error("Newsletter generation failed:", err);
       const errorStr = JSON.stringify(err);
       const isQuota = errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED');
       setError(
         isQuota 
-        ? "HARVEST LIMIT REACHED: The Gemini API quota has been exhausted. Please wait at least 60 seconds. The Free Tier has strict 'Requests Per Minute' limits."
-        : `Harvesting interrupted: ${err.message || 'The model was unable to complete the draft. Please try again in a few moments.'}`
+        ? "COOLDOWN REQUIRED: You've reached the Gemini Free Tier limit. Please wait exactly 60 seconds and try again. TIP: Disable 'AI Image Generation' for a faster, lower-resource draft."
+        : `Harvesting interrupted: ${err.message || 'The model was unable to complete the draft.'}`
       );
     } finally {
       setIsLoading(false);
+      setLoadingStep('');
     }
   };
 
@@ -347,32 +356,41 @@ export default function App() {
             </section>
           )}
 
-          <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm">
-            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-6"><Globe className="w-4 h-4 text-ag-gold" /> Market Watch</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {marketTrends.map((m, i) => (
-                <div key={i} className="bg-neutral-50 p-4 rounded-3xl ring-1 ring-neutral-100 flex justify-between items-end">
-                  <div><p className="text-[9px] font-black text-neutral-400 uppercase">{m.name}</p><p className="text-sm font-black text-ag-green">{m.price}</p></div>
-                  <Sparkline data={m.trend} />
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-between mb-4">
-               <p className="text-[9px] font-black text-neutral-300 uppercase">Last Harvested: {marketAsOf || 'Syncing...'}</p>
-               <button onClick={loadMarketTrends} className="p-2 hover:bg-neutral-50 rounded-full text-ag-green"><RefreshCw className="w-3 h-3"/></button>
-            </div>
+          <section className="bg-white rounded-[2.5rem] p-8 border border-neutral-200 shadow-sm space-y-4">
+            <h3 className="text-xs font-black uppercase text-ag-green tracking-widest flex items-center gap-2 mb-2"><Globe className="w-4 h-4 text-ag-gold" /> Mode & Grounding</h3>
+            
             <label className="flex items-center gap-3 cursor-pointer group bg-neutral-50 p-4 rounded-2xl border border-neutral-100 hover:bg-neutral-100 transition-all">
               <input type="checkbox" checked={includeMarket} onChange={e => setIncludeMarket(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
-              <span className="text-[10px] font-black uppercase text-neutral-400 group-hover:text-ag-green">Sync Market grounding in Draft</span>
+              <div className="flex-1">
+                <span className="block text-[10px] font-black uppercase text-neutral-600">Market Grounding</span>
+                <span className="text-[9px] text-neutral-400">Search latest SAFEX prices via Google.</span>
+              </div>
             </label>
+
+            <label className={`flex items-center gap-3 cursor-pointer group p-4 rounded-2xl border transition-all ${generateImages ? 'bg-ag-green/5 border-ag-green/20' : 'bg-neutral-50 border-neutral-100'}`}>
+              <input type="checkbox" checked={generateImages} onChange={e => setGenerateImages(e.target.checked)} className="w-5 h-5 rounded-lg text-ag-green border-neutral-300 focus:ring-ag-green" />
+              <div className="flex-1">
+                <span className={`block text-[10px] font-black uppercase ${generateImages ? 'text-ag-green' : 'text-neutral-600'}`}>AI Image Generation</span>
+                <span className="text-[9px] text-neutral-400">Creates custom visuals for sections. (Higher 429 risk)</span>
+              </div>
+              {generateImages ? <Zap className="w-4 h-4 text-ag-gold" /> : <ZapOff className="w-4 h-4 text-neutral-300" />}
+            </label>
+
+            <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 mt-2">
+              <p className="text-[9px] font-medium text-blue-600 leading-relaxed italic">
+                Tip: If hitting "Harvest Limits," toggle off <strong>AI Image Generation</strong> to generate text instantly.
+              </p>
+            </div>
           </section>
 
           {error && (
-            <div className="p-5 bg-red-50 border border-red-100 text-red-600 rounded-[2rem] flex items-start gap-4 text-xs font-black animate-in slide-in-from-top-2">
-              <AlertCircle className="w-6 h-6 flex-shrink-0 mt-0.5"/>
-              <div className="flex-1">
-                <span className="block font-bold">Generation Error</span>
-                <span className="text-[10px] opacity-80">{error}</span>
+            <div className="p-6 bg-red-50 border border-red-100 text-red-600 rounded-[2rem] space-y-3 animate-in slide-in-from-top-2">
+              <div className="flex items-start gap-4 text-xs font-black">
+                <AlertCircle className="w-6 h-6 flex-shrink-0 mt-0.5"/>
+                <div className="flex-1">
+                  <span className="block font-bold mb-1 uppercase tracking-tight">Generation Throttled</span>
+                  <span className="text-[10px] font-medium opacity-80 block leading-normal">{error}</span>
+                </div>
               </div>
             </div>
           )}
@@ -383,9 +401,9 @@ export default function App() {
              {isLoading ? (
                <div className="h-full flex flex-col items-center justify-center space-y-8 text-center">
                  <div className="w-20 h-20 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
-                 <div className="space-y-1">
+                 <div className="space-y-3">
                    <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
-                   <p className="text-[10px] font-medium text-neutral-300 italic">Respecting RPM limits and grounding insights...</p>
+                   <p className="text-[10px] font-bold text-ag-gold animate-pulse">{loadingStep}</p>
                  </div>
                </div>
              ) : newsletter ? (
