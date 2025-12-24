@@ -1,9 +1,7 @@
-
-/// <reference types="node" />
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsletterData, CommodityPrice, CurationItem } from "../types";
 
-// Fallback declaration for process.env in browser context
+// Fallback declaration for process.env in browser/build context
 declare const process: {
   env: {
     API_KEY: string;
