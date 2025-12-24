@@ -21,7 +21,7 @@ Newsletter Structure:
 - [THE FIELD REPORT]: Business insights for farmers.
 - [SUPERFOOD SPOTLIGHT]: Facts and recipes for niche health items.
 - [THE WALLET]: Investing education + live market data. Use a farm analogy for finance.
-- [THE BREAKROOM]: 1-question agricultural trivia.
+- [THE BREAKROOM]: A 1-question agricultural trivia.
 `;
 
 export const generateNewsletter = async (
@@ -57,7 +57,7 @@ export const generateNewsletter = async (
 
   const prompt = `Write today's edition of "The Yield". 
   ${themeContext}
-  ${includeMarketData ? "Search Google for today's South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Also check Cotton Lint benchmarks and general fiber market trends. Ensure the 'The Wallet' section includes these live figures." : "Use estimated benchmarks for grains (Maize, Wheat, Soya) and fibers (Cotton) based on recent trends."}`;
+  ${includeMarketData ? "Search Google for today's (latest reported) South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Ensure the 'The Wallet' section includes these exact live figures as reported today." : "Use estimated benchmarks for grains (Maize, Wheat, Soya) and fibers (Cotton) based on recent trends."}`;
   
   parts.push({ text: prompt });
 
@@ -137,7 +137,7 @@ export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search Google: Today's SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton). Also SA Raw Honey (ZAR/kg) and Cotton Lint benchmarks. Return as JSON array." }] }],
+      contents: [{ parts: [{ text: "Search Google: CURRENT latest SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton) as of today. Also latest SA Raw Honey prices and Cotton Lint benchmarks. Return as JSON array." }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
@@ -183,18 +183,21 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: [{ parts: [{ text: `A clean, professional illustration for a business newsletter: ${prompt}` }] }],
-      config: { imageConfig: { aspectRatio: "16:9" } }
+      contents: {
+        parts: [{ text: `A professional, clean editorial agricultural photograph for a business newsletter. Scene: ${prompt}` }]
+      },
+      config: { 
+        imageConfig: { aspectRatio: "16:9" }
+      }
     });
     
-    const parts = response.candidates?.[0]?.content?.parts;
-    if (parts) {
-      for (const part of parts) {
-        if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
   } catch (e) {
-    console.error("Image generation failed.");
+    console.error("Image generation failed:", e);
   }
   return undefined;
 };
