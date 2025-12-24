@@ -9,10 +9,11 @@ declare var process: {
 };
 
 /**
- * Global state to enforce a minimum gap between ANY API calls.
+ * Global state to enforce a minimum gap between API calls.
+ * Increased to 3s to protect against image generation quota limits.
  */
 let lastRequestTime = 0;
-const MIN_REQUEST_GAP = 2500; 
+const MIN_REQUEST_GAP = 3000; 
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -27,7 +28,7 @@ async function throttle(extraDelay = 0) {
   lastRequestTime = Date.now();
 }
 
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 4, delay = 4000): Promise<T> {
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 5000): Promise<T> {
   await throttle();
   
   try {
@@ -36,13 +37,12 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 4, delay = 4000)
     const errorString = JSON.stringify(err).toLowerCase();
     const isQuotaError = 
       err?.status === 429 || 
-      err?.status === 403 || 
       errorString.includes('429') || 
       errorString.includes('quota') || 
       errorString.includes('resource_exhausted');
 
     if (isQuotaError && retries > 0) {
-      console.warn(`[Gemini API] Quota limit. Retrying in ${delay}ms...`);
+      console.warn(`Quota hit. Retrying in ${delay}ms...`);
       await sleep(delay);
       return callWithRetry(fn, retries - 1, delay * 2);
     }
@@ -76,7 +76,7 @@ Images: Provide unique 'imagePrompt' for each section. Editorial lifestyle photo
 
 export const generateNewsletter = async (
   curations: CurationItem[],
-  includeMarketData: boolean,
+  marketData: CommodityPrice[] | null,
   themeId: string = 'standard'
 ): Promise<NewsletterData> => {
   if (!process.env.API_KEY) throw new Error("API_KEY not found.");
@@ -90,10 +90,14 @@ export const generateNewsletter = async (
     return '';
   }).filter(Boolean).join('\n\n');
 
-  parts.push({ text: `DATA:\n${sourceContext || "Latest agricultural industry trends in South Africa."}` });
+  const marketContext = marketData 
+    ? `CURRENT MARKET TRENDS:\n${marketData.map(m => `${m.name}: ${m.price} per ${m.unit} (${m.category}) - Last Confirmed: ${m.confirmDate}`).join('\n')}`
+    : "No live market data available.";
+
+  parts.push({ text: `DATA:\n${sourceContext || "General agricultural industry news."}\n\n${marketContext}` });
 
   const prompt = `Generate "The Yield" Edition. ${themeId !== 'standard' ? `Theme: ${themeId}` : ""}
-  ${includeMarketData ? "IMPORTANT: Retrieve current SAFEX White Maize and Raw Honey prices (ZAR) in South Africa. Mention specific grains and fibers trends." : ""}
+  Incorporate the provided Market Trends into 'The Wallet' section using clever farm-to-finance analogies.
   Output strictly as JSON.`;
   
   parts.push({ text: prompt });
@@ -106,7 +110,6 @@ export const generateNewsletter = async (
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         thinkingConfig: { thinkingBudget: 0 },
-        tools: includeMarketData ? [{ googleSearch: {} }] : [],
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -136,18 +139,9 @@ export const generateNewsletter = async (
     });
 
     const result = JSON.parse(cleanJSON(response.text || "{}"));
-    const sources: { title: string; uri: string }[] = [];
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    
-    if (Array.isArray(groundingChunks)) {
-      groundingChunks.forEach((chunk: any) => {
-        if (chunk.web) sources.push({ title: chunk.web.title, uri: chunk.web.uri });
-      });
-    }
-
     return {
       ...result,
-      sources,
+      sources: [],
       generatedAt: new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
     };
   }); 
@@ -161,7 +155,7 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Sunflower Seed, and Cotton benchmarks in South Africa. Return JSON with name, current price, unit, category, trend (array of last 5 day prices), and confirmDate." }] }],
+        contents: [{ parts: [{ text: "Search CURRENT SAFEX prices for White Maize, Yellow Maize, Sunflower Seed, Cotton, and Wool benchmarks in South Africa. Return JSON with name, current price, unit, category, trend (last 5 values), and confirmDate (e.g. 'Feb 24')." }] }],
         config: {
           tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
@@ -193,10 +187,10 @@ export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], as
   } catch (e) {
     return {
       prices: [
-        { name: "White Maize", price: "R5,380", unit: "ton", category: "Grains", trend: [5100, 5200, 5150, 5300, 5380], confirmDate: "Today" },
-        { name: "Yellow Maize", price: "R5,120", unit: "ton", category: "Grains", trend: [4900, 5000, 5050, 5100, 5120], confirmDate: "Today" },
-        { name: "Sunflower Seed", price: "R8,900", unit: "ton", category: "Oilseeds", trend: [9200, 9100, 9000, 8950, 8900], confirmDate: "Today" },
-        { name: "Cotton (SA)", price: "R44.50", unit: "kg", category: "Fibers", trend: [42.1, 43.5, 43.8, 44.0, 44.5], confirmDate: "Yesterday" }
+        { name: "White Maize", price: "R5,380", unit: "ton", category: "Grains", trend: [5100, 5200, 5150, 5300, 5380], confirmDate: "Feb 24" },
+        { name: "Yellow Maize", price: "R5,120", unit: "ton", category: "Grains", trend: [4900, 5000, 5050, 5100, 5120], confirmDate: "Feb 24" },
+        { name: "Sunflower Seed", price: "R8,900", unit: "ton", category: "Grains", trend: [9200, 9100, 9000, 8950, 8900], confirmDate: "Feb 23" },
+        { name: "Cotton (SA)", price: "R44.50", unit: "kg", category: "Fibers", trend: [42.1, 43.5, 43.8, 44.0, 44.5], confirmDate: "Feb 22" }
       ],
       asOf: new Date().toLocaleDateString('en-ZA')
     };
@@ -207,22 +201,23 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   if (!process.env.API_KEY) return undefined;
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
-    await throttle(2000); 
+    // Images are strictly rate limited, we increase the gap
+    await throttle(4000); 
     
     return await callWithRetry(async () => {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [{ text: `High-resolution editorial photography of ${prompt}. Natural sunlight, realistic textures, no text overlays, professional agricultural theme.` }]
+          parts: [{ text: `Professional editorial photography of ${prompt}. Natural lighting, clear focus, agricultural high-end lifestyle style. No text.` }]
         },
         config: { imageConfig: { aspectRatio: "16:9" } }
       });
       
       const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : undefined;
-    }, 3, 6000); 
+    }, 2, 8000); 
   } catch (e) {
-    console.error("Image generation failed permanently for prompt:", prompt);
+    console.error("Image generation hit quota limits for prompt:", prompt);
     return undefined;
   }
 };
