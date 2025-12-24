@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsletterData, GroundingChunk, CommodityPrice, CurationItem } from "../types";
 
-// Ensure process is recognized by the compiler
+// Manual type declaration for process.env to satisfy the compiler without @types/node
 declare var process: {
   env: {
     API_KEY: string;
