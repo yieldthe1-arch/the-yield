@@ -14,7 +14,7 @@ Task: Produce "The Yield," a smart, punchy newsletter.
 Style: Morning Brew style. Smart, slightly irreverent, high-value.
 Tone: Professional but conversational. Avoid GPT-isms.
 Rule: Include exactly one subtle agricultural pun per issue.
-Imagery: Every section must include a detailed 'imagePrompt' for high-quality, professional agricultural photography or minimalist vector art.
+Imagery: Every section must include a high-quality 'imagePrompt'. These prompts should be extremely detailed, describing cinematic lighting, professional agricultural photography style, 8k resolution, and specific South African agricultural contexts.
 Bold the most important sentence in every paragraph.
 
 Newsletter Structure:
@@ -56,7 +56,7 @@ export const generateNewsletter = async (
 
   const prompt = `Write today's edition of "The Yield". 
   ${themeContext}
-  ${includeMarketData ? "Search Google for today's (latest reported) South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Ensure the 'The Wallet' section includes these exact live figures as reported today." : "Use estimated benchmarks for grains (Maize, Wheat, Soya) and fibers (Cotton) based on recent trends."}`;
+  ${includeMarketData ? "Search Google for today's (latest reported) South African SAFEX prices (White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans) and Raw Honey (ZAR). Ensure the 'The Wallet' section includes these exact live figures as reported today. Mention the date these prices were recorded." : "Use estimated benchmarks for grains (Maize, Wheat, Soya) and fibers (Cotton) based on recent trends."}`;
   
   parts.push({ text: prompt });
 
@@ -88,7 +88,8 @@ export const generateNewsletter = async (
                 },
                 required: ["id", "title", "content", "imagePrompt"]
               }
-            }
+            },
+            marketDate: { type: Type.STRING, description: "The date the reported market prices were recorded." }
           },
           required: ["header", "sections"]
         }
@@ -128,39 +129,49 @@ const processResponse = (response: any): NewsletterData => {
   };
 };
 
-export const fetchMarketTrends = async (): Promise<CommodityPrice[]> => {
+export const fetchMarketTrends = async (): Promise<{prices: CommodityPrice[], asOf: string}> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) return getFallbackMarketData();
+  if (!apiKey) return { prices: getFallbackMarketData(), asOf: "Recent Benchmarks" };
   
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ parts: [{ text: "Search Google: CURRENT latest SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton) as of today. Also latest SA Raw Honey prices and Cotton Lint benchmarks. Return as JSON array." }] }],
+      contents: [{ parts: [{ text: "Search Google: CURRENT latest SAFEX prices for White Maize, Yellow Maize, Wheat, Sunflower Seeds, Soya Beans (ZAR/ton) as of today. Also latest SA Raw Honey prices. Return as JSON object with 'prices' (array) and 'asOf' (string date)." }] }],
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              price: { type: Type.STRING },
-              unit: { type: Type.STRING },
-              category: { type: Type.STRING },
-              trend: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+          type: Type.OBJECT,
+          properties: {
+            prices: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  price: { type: Type.STRING },
+                  unit: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  trend: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+                },
+                required: ["name", "price", "unit", "category", "trend"]
+              }
             },
-            required: ["name", "price", "unit", "category", "trend"]
-          }
+            asOf: { type: Type.STRING }
+          },
+          required: ["prices", "asOf"]
         }
       }
     });
     
-    const data = JSON.parse(response.text || "[]");
-    return data.length > 0 ? data : getFallbackMarketData();
+    const data = JSON.parse(response.text || "{}");
+    return {
+      prices: data.prices && data.prices.length > 0 ? data.prices : getFallbackMarketData(),
+      asOf: data.asOf || new Date().toLocaleDateString()
+    };
   } catch (e: any) {
-    return getFallbackMarketData();
+    return { prices: getFallbackMarketData(), asOf: "Recent Benchmarks" };
   }
 };
 
@@ -180,13 +191,16 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
   
   const ai = new GoogleGenAI({ apiKey });
   try {
+    // Switching to Gemini 2.5 Flash Image for free tier compatibility
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
-        parts: [{ text: `A professional, clean editorial agricultural photograph for a business newsletter. Scene: ${prompt}` }]
+        parts: [{ text: `Professional editorial agricultural photography for a high-end newsletter. Cinematic lighting, photorealistic, sharp focus. Scene: ${prompt}` }]
       },
       config: { 
-        imageConfig: { aspectRatio: "16:9" }
+        imageConfig: { 
+          aspectRatio: "16:9"
+        }
       }
     });
     
@@ -202,7 +216,7 @@ export const generateImage = async (prompt: string): Promise<string | undefined>
       }
     }
   } catch (e) {
-    console.error("Image generation failed:", e);
+    console.error("Flash Image generation failed:", e);
   }
   return undefined;
 };
