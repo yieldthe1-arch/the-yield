@@ -95,21 +95,8 @@ export default function App() {
   }, [subscribers, emailConfig]);
 
   useEffect(() => {
-    if (isAuthenticated) loadMarketTrends();
+    if (isAuthenticated && marketTrends.length === 0) loadMarketTrends();
   }, [isAuthenticated]);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoggingIn(true);
-    setLoginError(false);
-    await new Promise(r => setTimeout(r, 600));
-    if (authEmail.toLowerCase().trim() === AUTHORIZED_EMAIL && authPassword === AUTHORIZED_PASSKEY) {
-      setIsAuthenticated(true);
-    } else {
-      setLoginError(true);
-    }
-    setIsLoggingIn(false);
-  };
 
   const loadMarketTrends = async () => {
     try {
@@ -167,20 +154,29 @@ export default function App() {
     try {
       const data = await generateNewsletter(allContent, includeMarket, themeId);
       const sectionsWithImages = [];
+      
+      // Process images sequentially with a delay to avoid RPM limits.
+      // 3.5 seconds is safe for most API tiers.
       for (const section of data.sections) {
         try {
+          if (data.sections.indexOf(section) > 0) {
+            await new Promise(r => setTimeout(r, 3500));
+          }
+          
           const url = await generateImage(section.imagePrompt);
           sectionsWithImages.push({ ...section, imageUrl: url });
         } catch (imgErr) {
+          console.warn("Image generation failed for section:", section.title, imgErr);
           sectionsWithImages.push(section);
         }
       }
+      
       setNewsletter({ ...data, sections: sectionsWithImages });
       setCurations([]);
       setInputText('');
     } catch (err: any) {
-      console.error("Generation failed:", err);
-      setError(`Harvesting interrupted: ${err.message || 'The model was unable to complete the draft. Please adjust your inputs and try again.'}`);
+      console.error("Newsletter generation failed permanently:", err);
+      setError(`Harvesting interrupted: ${err.message || 'The model was unable to complete the draft due to quota limits. Please wait a minute and try again.'}`);
     } finally {
       setIsLoading(false);
     }
@@ -193,10 +189,25 @@ export default function App() {
     alert("Newsletter copied!");
   };
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    setLoginError(false);
+    
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    if (authEmail === AUTHORIZED_EMAIL && authPassword === AUTHORIZED_PASSKEY) {
+      setIsAuthenticated(true);
+    } else {
+      setLoginError(true);
+    }
+    setIsLoggingIn(false);
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-ag-green flex items-center justify-center p-6">
-        <form onSubmit={handleLogin} className="w-full max-w-sm bg-white rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in-95 duration-500">
+        <form onSubmit={handleLogin} className="w-full max-sm:max-w-xs max-w-sm bg-white rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in-95 duration-500">
            <div className="text-center">
               <div className="p-5 rounded-3xl bg-ag-green inline-block mb-6 shadow-xl"><Sprout className="w-10 h-10 text-ag-gold" /></div>
               <h2 className="font-serif text-5xl font-black text-ag-green italic tracking-tighter">The Yield</h2>
@@ -223,7 +234,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-neutral-900 pb-20">
-      {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm flex justify-center items-center p-6">
           <div className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
@@ -345,7 +355,10 @@ export default function App() {
           {error && (
             <div className="p-5 bg-red-50 border border-red-100 text-red-600 rounded-[2rem] flex items-start gap-4 text-xs font-black animate-in slide-in-from-top-2">
               <AlertCircle className="w-6 h-6 flex-shrink-0 mt-0.5"/>
-              <span>{error}</span>
+              <div className="flex-1">
+                <span className="block font-bold">Generation Error</span>
+                <span className="text-[10px] opacity-80">{error}</span>
+              </div>
             </div>
           )}
         </div>
@@ -357,7 +370,7 @@ export default function App() {
                  <div className="w-20 h-20 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
                  <div className="space-y-1">
                    <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
-                   <p className="text-[10px] font-medium text-neutral-300">Grounding insights and drafting visuals...</p>
+                   <p className="text-[10px] font-medium text-neutral-300 italic">Respecting quota limits and grounding insights...</p>
                  </div>
                </div>
              ) : newsletter ? (
@@ -370,7 +383,6 @@ export default function App() {
                   </header>
 
                   <div className="space-y-16">
-                    {/* Morning Brew Style Markets Section */}
                     <div className="bg-white rounded-xl border border-neutral-100 overflow-hidden shadow-sm">
                       <div className="bg-neutral-50/80 px-4 py-2 border-b border-neutral-100">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">MARKETS</h4>
@@ -399,7 +411,6 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Grounding Sources */}
                   {newsletter.sources && newsletter.sources.length > 0 && (
                     <div className="mt-20 pt-10 border-t border-neutral-100 text-left">
                       <h4 className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-6 flex items-center gap-2">
