@@ -4,7 +4,6 @@ import {
   Sprout, Copy, TrendingUp, Loader2, AlertCircle, Plus, Trash2, RefreshCw,
   FileText, Youtube, Zap, X, Settings, LogOut, Printer, Layers, Send, CheckCircle2,
   Mail, Globe, Calendar, Image as ImageIcon, Music, Film, Upload, Clock, Download,
-  // Fix: Removed duplicate lowercase 'zapOff' import
   Key, ExternalLink, Heart, Share2, Megaphone, ArrowUp, ArrowDown, Minus, ZapOff
 } from 'lucide-react';
 import { generateNewsletter, fetchMarketTrends, generateImage } from './services/geminiService';
@@ -67,6 +66,7 @@ export default function App() {
   const [themeId, setThemeId] = useState('standard');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
+  const [countdown, setCountdown] = useState(0);
   const [marketTrends, setMarketTrends] = useState<CommodityPrice[]>([]);
   const [marketAsOf, setMarketAsOf] = useState<string>('');
   const [newsletter, setNewsletter] = useState<NewsletterData | null>(null);
@@ -103,6 +103,17 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [isAuthenticated]);
+
+  // Countdown logic for the loading screen
+  useEffect(() => {
+    let timer: any;
+    if (countdown > 0) {
+      timer = setInterval(() => {
+        setCountdown(prev => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [countdown]);
 
   const loadMarketTrends = async () => {
     try {
@@ -157,7 +168,8 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setNewsletter(null);
-    setLoadingStep('Drafting the Yield...');
+    setLoadingStep('Initializing Secure API Connection...');
+    setCountdown(7); // Initial 7s buffer defined in geminiService
 
     try {
       // Step 1: Generate text
@@ -165,18 +177,17 @@ export default function App() {
       
       const sectionsWithImages = [];
       
-      // Step 2: Generate images (Only if enabled)
+      // Step 2: Generate images
       if (generateImages) {
-        setLoadingStep('Capturing Visuals (Images take longer to respect quota)...');
         for (const section of data.sections) {
           try {
-            // Gap between image requests
+            setLoadingStep(`Quota Cooldown: Fetching visual for "${section.title}"...`);
+            setCountdown(9); // 9s gap for images
             await new Promise(r => setTimeout(r, 9000));
-            setLoadingStep(`Generating visual for: ${section.title}...`);
             const url = await generateImage(section.imagePrompt);
             sectionsWithImages.push({ ...section, imageUrl: url });
           } catch (imgErr) {
-            console.warn("Image skipped due to limit");
+            console.warn("Image skipped");
             sectionsWithImages.push(section);
           }
         }
@@ -193,12 +204,13 @@ export default function App() {
       const isQuota = errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED');
       setError(
         isQuota 
-        ? "COOLDOWN REQUIRED: You've reached the Gemini Free Tier limit. Please wait exactly 60 seconds and try again. TIP: Disable 'AI Image Generation' for a faster, lower-resource draft."
-        : `Harvesting interrupted: ${err.message || 'The model was unable to complete the draft.'}`
+        ? "HARVEST LIMIT: You've reached the Gemini Free Tier 'Requests Per Minute' limit. Google requires a 60-second cooldown for free users."
+        : `Harvesting interrupted: ${err.message || 'Connection lost.'}`
       );
     } finally {
       setIsLoading(false);
       setLoadingStep('');
+      setCountdown(0);
     }
   };
 
@@ -378,7 +390,7 @@ export default function App() {
 
             <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 mt-2">
               <p className="text-[9px] font-medium text-blue-600 leading-relaxed italic">
-                Tip: If hitting "Harvest Limits," toggle off <strong>AI Image Generation</strong> to generate text instantly.
+                Tip: For faster drafts, disable <strong>AI Image Generation</strong> to skip the 30-second image buffer.
               </p>
             </div>
           </section>
@@ -400,10 +412,18 @@ export default function App() {
            <div className="p-12 flex-1 overflow-y-auto custom-scrollbar">
              {isLoading ? (
                <div className="h-full flex flex-col items-center justify-center space-y-8 text-center">
-                 <div className="w-20 h-20 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
+                 <div className="relative">
+                   <div className="w-24 h-24 border-4 border-ag-green/10 border-t-ag-green rounded-full animate-spin" />
+                   {countdown > 0 && (
+                     <div className="absolute inset-0 flex items-center justify-center">
+                       <span className="text-xl font-black text-ag-gold">{countdown}</span>
+                     </div>
+                   )}
+                 </div>
                  <div className="space-y-3">
                    <p className="text-[12px] font-black uppercase tracking-[0.5em] text-ag-green">Brewing The Yield</p>
                    <p className="text-[10px] font-bold text-ag-gold animate-pulse">{loadingStep}</p>
+                   {countdown > 0 && <p className="text-[9px] text-neutral-400 uppercase font-black tracking-widest">Enforcing Quota Safety Buffer</p>}
                  </div>
                </div>
              ) : newsletter ? (
